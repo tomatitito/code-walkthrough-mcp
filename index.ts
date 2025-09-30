@@ -11,6 +11,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { HtmlToPngConverter } from './html-to-png.js';
 import hljs from 'highlight.js';
+import { TextToSpeechConverter } from './tts.js';
 
 const execAsync = promisify(exec);
 
@@ -141,6 +142,43 @@ export class GitCommitVideoServer {
             required: ["framesDir", "outputPath"],
           },
         },
+        {
+          name: "generate_audio",
+          description: "Generate an audio file from text using a TTS service",
+          inputSchema: {
+            type: "object",
+            properties: {
+              text: {
+                type: "string",
+                description: "The text to synthesize",
+              },
+              outputFile: {
+                type: "string",
+                description: "Path to save the audio file",
+              },
+            },
+            required: ["text", "outputFile"],
+          },
+        },
+        {
+          name: "generate_full_script",
+          description: "Generate a complete narrative script for TTS from commit information",
+          inputSchema: {
+            type: "object",
+            properties: {
+              commitInfo: {
+                type: "object",
+                description: "Commit information from analyze_commit",
+              },
+              style: {
+                type: "string",
+                description: "Presentation style: 'technical', 'beginner', 'overview'",
+                enum: ["technical", "beginner", "overview"],
+              },
+            },
+            required: ["commitInfo"],
+          },
+        },
       ],
     }));
 
@@ -171,6 +209,12 @@ export class GitCommitVideoServer {
               (args.fps as number) || 2
             );
 
+          case "generate_audio":
+            return await this.generateAudio(args.text as string, args.outputFile as string);
+
+          case "generate_full_script":
+            return await this.generateFullScript(args.commitInfo as object, (args.style as string) || "technical");
+
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -185,6 +229,67 @@ export class GitCommitVideoServer {
         };
       }
     });
+  }
+
+  private async generateAudio(text: string, outputFile: string) {
+    const ttsConverter = new TextToSpeechConverter();
+    await ttsConverter.generateAudio(text, outputFile);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Audio content written to file: ${outputFile}`,
+        },
+      ],
+    };
+  }
+
+  private async generateFullScript(commitInfo: any, style: string) {
+    const script = {
+      intro: this.generateIntroduction(commitInfo, style),
+      sections: commitInfo.files.map((file: FileChange) => ({
+        file: file.path,
+        explanation: this.generateFileExplanation(file, style),
+        duration: this.calculateSectionDuration(file, style),
+      })),
+      outro: this.generateOutro(commitInfo, style),
+    };
+
+    // Generate full narrative text for TTS
+    const pauseShort = style === "beginner" ? ". " : ". ";
+    const pauseLong = style === "beginner" ? ". ... " : ". ";
+
+    let fullText = script.intro + pauseLong;
+
+    script.sections.forEach((section, index) => {
+      if (style === "beginner" && index === 0) {
+        fullText += "Let's start by looking at the first file. ";
+      } else if (style === "beginner" && index > 0) {
+        fullText += "Next, let's examine another file. ";
+      }
+
+      fullText += section.explanation + pauseShort;
+
+      if (style === "beginner" && index < script.sections.length - 1) {
+        fullText += "Moving on. ";
+      }
+    });
+
+    fullText += pauseLong + script.outro;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            structured: script,
+            narrative: fullText,
+            totalDuration: script.sections.reduce((sum, section) => sum + section.duration, 0) +
+              (style === "beginner" ? 8 : style === "overview" ? 3 : 5)
+          }, null, 2),
+        },
+      ],
+    };
   }
 
   private async analyzeCommit(repoPath: string, commitHash: string) {
@@ -268,17 +373,14 @@ export class GitCommitVideoServer {
   }
 
   private async generateScript(commitInfo: any, style: string) {
-    // This would integrate with an LLM to generate natural language explanations
     const script = {
-      intro: `This commit by ${commitInfo.author} ${commitInfo.message}`,
+      intro: this.generateIntroduction(commitInfo, style),
       sections: commitInfo.files.map((file: FileChange) => ({
         file: file.path,
         explanation: this.generateFileExplanation(file, style),
-        duration: Math.max(3, file.additions + file.deletions) / 10, // seconds
+        duration: this.calculateSectionDuration(file, style),
       })),
-      outro: `These changes affect ${commitInfo.files.length} file(s) with ${commitInfo.files.reduce((sum: number, f: FileChange) => sum + f.additions, 0)
-        } additions and ${commitInfo.files.reduce((sum: number, f: FileChange) => sum + f.deletions, 0)
-        } deletions.`,
+      outro: this.generateOutro(commitInfo, style),
     };
 
     return {
@@ -291,17 +393,97 @@ export class GitCommitVideoServer {
     };
   }
 
+  private generateIntroduction(commitInfo: any, style: string): string {
+    const dateStr = new Date(commitInfo.date).toLocaleDateString();
+
+    if (style === "beginner") {
+      return `Welcome to this code walkthrough! Today we'll explore a commit made by ${commitInfo.author} on ${dateStr}. The commit message says: "${commitInfo.message}". Let's see what changes were made to the codebase.`;
+    } else if (style === "overview") {
+      return `Commit ${commitInfo.hash.slice(0, 8)} by ${commitInfo.author}: ${commitInfo.message}`;
+    }
+
+    return `This is a technical walkthrough of commit ${commitInfo.hash.slice(0, 8)} by ${commitInfo.author}. The commit titled "${commitInfo.message}" was made on ${dateStr}. Let's examine the changes in detail.`;
+  }
+
+  private generateOutro(commitInfo: any, style: string): string {
+    const totalAdditions = commitInfo.files.reduce((sum: number, f: FileChange) => sum + f.additions, 0);
+    const totalDeletions = commitInfo.files.reduce((sum: number, f: FileChange) => sum + f.deletions, 0);
+    const fileCount = commitInfo.files.length;
+
+    if (style === "beginner") {
+      return `That concludes our walkthrough! This commit modified ${fileCount} file${fileCount > 1 ? 's' : ''}, adding ${totalAdditions} new line${totalAdditions !== 1 ? 's' : ''} and removing ${totalDeletions} line${totalDeletions !== 1 ? 's' : ''}. These changes help improve and maintain the codebase.`;
+    } else if (style === "overview") {
+      return `Summary: ${fileCount} files changed, ${totalAdditions} insertions, ${totalDeletions} deletions.`;
+    }
+
+    return `This commit affects ${fileCount} file${fileCount > 1 ? 's' : ''} with ${totalAdditions} line addition${totalAdditions !== 1 ? 's' : ''} and ${totalDeletions} line deletion${totalDeletions !== 1 ? 's' : ''}. The changes represent a focused modification to the codebase architecture.`;
+  }
+
+  private calculateSectionDuration(file: FileChange, style: string): number {
+    const baseTime = style === "beginner" ? 5 : style === "overview" ? 2 : 3;
+    const complexityFactor = Math.min(10, (file.additions + file.deletions) / 5);
+    return Math.max(baseTime, baseTime + complexityFactor);
+  }
+
   private generateFileExplanation(file: FileChange, style: string): string {
     const action = file.status === "added" ? "adds" :
       file.status === "deleted" ? "removes" : "modifies";
 
+    const fileExtension = path.extname(file.path);
+    const fileName = path.basename(file.path);
+    const fileType = this.getFileTypeDescription(fileExtension);
+
     if (style === "beginner") {
-      return `This ${action} the file ${path.basename(file.path)}, making changes to improve the code.`;
+      if (file.status === "added") {
+        return `This commit creates a new ${fileType} called ${fileName}. Adding ${file.additions} lines of code, this file introduces new functionality to our project.`;
+      } else if (file.status === "deleted") {
+        return `This commit removes the ${fileType} ${fileName}. The file contained ${file.deletions} lines that are no longer needed.`;
+      } else {
+        return `This commit updates the ${fileType} ${fileName}. It adds ${file.additions} new lines and removes ${file.deletions} existing lines, improving the code's functionality.`;
+      }
     } else if (style === "overview") {
-      return `${file.path}: ${file.additions} additions, ${file.deletions} deletions`;
+      return `${file.path}: ${file.status} (+${file.additions}/-${file.deletions})`;
     }
 
-    return `${action} ${file.path} with ${file.additions} line additions and ${file.deletions} deletions`;
+    // Technical style
+    if (file.status === "added") {
+      return `Introduces ${file.path}, a new ${fileType} with ${file.additions} lines implementing core functionality.`;
+    } else if (file.status === "deleted") {
+      return `Removes ${file.path}, eliminating ${file.deletions} lines of deprecated ${fileType} code.`;
+    } else {
+      const netChange = file.additions - file.deletions;
+      const changeDescription = netChange > 0 ? `expanding by ${netChange} lines` :
+        netChange < 0 ? `reducing by ${Math.abs(netChange)} lines` :
+          "with balanced additions and deletions";
+      return `Refactors ${file.path}, ${changeDescription}. This ${fileType} modification includes ${file.additions} additions and ${file.deletions} deletions.`;
+    }
+  }
+
+  private getFileTypeDescription(extension: string): string {
+    const typeMap: { [key: string]: string } = {
+      '.js': 'JavaScript file',
+      '.ts': 'TypeScript file',
+      '.py': 'Python script',
+      '.java': 'Java class',
+      '.cpp': 'C++ source file',
+      '.c': 'C source file',
+      '.h': 'header file',
+      '.css': 'stylesheet',
+      '.html': 'HTML document',
+      '.json': 'configuration file',
+      '.md': 'documentation file',
+      '.yml': 'YAML configuration',
+      '.yaml': 'YAML configuration',
+      '.xml': 'XML document',
+      '.sql': 'SQL script',
+      '.sh': 'shell script',
+      '.bat': 'batch script',
+      '.dockerfile': 'Docker configuration',
+      '.gitignore': 'Git ignore file',
+      '.env': 'environment file',
+    };
+
+    return typeMap[extension.toLowerCase()] || 'file';
   }
 
   private async createFrames(commitInfo: any, outputDir: string, theme: string) {
