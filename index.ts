@@ -395,16 +395,77 @@ export class GitCommitVideoServer {
     };
   }
 
-  private generateIntroduction(commitInfo: any, style: string): string {
-    const dateStr = new Date(commitInfo.date).toLocaleDateString();
+  private summarizeAchievement(commitInfo: any): string {
+    const fileCount = commitInfo.files.length;
+    const addedFiles = commitInfo.files.filter((f: FileChange) => f.status === "added").length;
+    const deletedFiles = commitInfo.files.filter((f: FileChange) => f.status === "deleted").length;
+    const modifiedFiles = commitInfo.files.filter((f: FileChange) => f.status === "modified").length;
 
-    if (style === "beginner") {
-      return `Welcome to this code walkthrough! [[slnc 300]] Today, we'll explore a commit made by ${commitInfo.author} on ${dateStr}. [[slnc 200]] The commit message says, "${commitInfo.message}". [[slnc 300]] Let's see what changes were made to the codebase`;
-    } else if (style === "overview") {
-      return `Commit ${commitInfo.hash.slice(0, 8)} by ${commitInfo.author}, ${commitInfo.message}`;
+    // Infer achievement from commit message and file changes
+    const message = commitInfo.message.toLowerCase();
+
+    if (message.includes("fix") || message.includes("bug")) {
+      return `This commit fixes a bug by modifying ${modifiedFiles} file${modifiedFiles !== 1 ? 's' : ''}`;
+    } else if (message.includes("feat") || message.includes("add")) {
+      if (addedFiles > 0) {
+        return `This commit introduces new functionality by adding ${addedFiles} new file${addedFiles !== 1 ? 's' : ''} and updating ${modifiedFiles} existing file${modifiedFiles !== 1 ? 's' : ''}`;
+      }
+      return `This commit adds new features by modifying ${modifiedFiles} file${modifiedFiles !== 1 ? 's' : ''}`;
+    } else if (message.includes("refactor")) {
+      return `This commit refactors the codebase, restructuring ${fileCount} file${fileCount !== 1 ? 's' : ''} to improve code quality`;
+    } else if (message.includes("test")) {
+      return `This commit enhances testing by adding or updating ${fileCount} test file${fileCount !== 1 ? 's' : ''}`;
+    } else if (message.includes("docs") || message.includes("documentation")) {
+      return `This commit improves documentation across ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
+    } else if (deletedFiles > 0) {
+      return `This commit cleans up the codebase by removing ${deletedFiles} file${deletedFiles !== 1 ? 's' : ''} and updating ${modifiedFiles} file${modifiedFiles !== 1 ? 's' : ''}`;
     }
 
-    return `This is a technical walkthrough of commit ${commitInfo.hash.slice(0, 8)}, by ${commitInfo.author}. [[slnc 200]] The commit, titled "${commitInfo.message}", was made on ${dateStr}. [[slnc 300]] Let's examine the changes in detail`;
+    // Default fallback
+    return `This commit modifies ${fileCount} file${fileCount !== 1 ? 's' : ''} in the codebase`;
+  }
+
+  private summarizeApproach(commitInfo: any): string {
+    const fileTypes = new Set(commitInfo.files.map((f: FileChange) => path.extname(f.path)));
+    const uniqueFileTypes = Array.from(fileTypes).filter(ext => ext);
+    const totalAdditions = commitInfo.files.reduce((sum: number, f: FileChange) => sum + f.additions, 0);
+    const totalDeletions = commitInfo.files.reduce((sum: number, f: FileChange) => sum + f.deletions, 0);
+
+    const message = commitInfo.message.toLowerCase();
+    const fileCount = commitInfo.files.length;
+
+    // Describe the technical approach at a high level
+    if (fileCount === 1) {
+      const file = commitInfo.files[0];
+      const fileType = this.getFileTypeDescription(path.extname(file.path));
+      return `This was accomplished by making changes to a single ${fileType}`;
+    }
+
+    const typeDescription = uniqueFileTypes.length > 0
+      ? `working across ${uniqueFileTypes.map(ext => this.getFileTypeDescription(ext as string)).slice(0, 3).join(", ")} files`
+      : "updating multiple files";
+
+    if (totalAdditions > totalDeletions * 2) {
+      return `This was accomplished primarily by adding new code, ${typeDescription}`;
+    } else if (totalDeletions > totalAdditions * 2) {
+      return `This was accomplished by removing unnecessary code, ${typeDescription}`;
+    } else {
+      return `This was accomplished by refactoring and restructuring, ${typeDescription}`;
+    }
+  }
+
+  private generateIntroduction(commitInfo: any, style: string): string {
+    const dateStr = new Date(commitInfo.date).toLocaleDateString();
+    const achievement = this.summarizeAchievement(commitInfo);
+    const approach = this.summarizeApproach(commitInfo);
+
+    if (style === "beginner") {
+      return `Welcome to this code walkthrough! [[slnc 300]] Today, we'll explore a commit made by ${commitInfo.author} on ${dateStr}. [[slnc 200]] The commit message says, "${commitInfo.message}". [[slnc 400]] ${achievement} [[slnc 300]] ${approach} [[slnc 400]] Now, let's dive into the technical details and see exactly how these changes were implemented`;
+    } else if (style === "overview") {
+      return `Commit ${commitInfo.hash.slice(0, 8)} by ${commitInfo.author}, ${commitInfo.message}. [[slnc 200]] ${achievement}`;
+    }
+
+    return `This is a technical walkthrough of commit ${commitInfo.hash.slice(0, 8)}, by ${commitInfo.author}. [[slnc 200]] The commit, titled "${commitInfo.message}", was made on ${dateStr}. [[slnc 300]] ${achievement} [[slnc 200]] ${approach} [[slnc 300]] Let's examine the implementation details`;
   }
 
   private generateOutro(commitInfo: any, style: string): string {
