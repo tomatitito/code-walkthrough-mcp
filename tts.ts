@@ -7,42 +7,25 @@ const execAsync = promisify(exec);
 export class TextToSpeechConverter {
   async generateAudio(text: string, outputFile: string): Promise<void> {
     try {
-      console.log(`Generating audio narration...`);
-      console.log(`Text length: ${text.length} characters`);
+      console.log('Generating audio narration with Edge TTS...');
+      console.log('Text length: ' + text.length + ' characters');
 
-      // Use macOS built-in 'say' command to generate audio
-      // First, save text to a temporary file to handle long text and special characters
-      const tempTextFile = outputFile.replace(/\.(wav|mp3|aiff)$/, '.txt');
-      await fs.writeFile(tempTextFile, text, 'utf8');
+      const silenceRegex = /\[\[slnc \d+\]\]/g;
+      const cleanedText = text.replace(silenceRegex, '');
 
-      // Generate audio using macOS say command
-      // Output as AIFF first, then convert to MP3 if needed
-      const tempAiffFile = outputFile.replace(/\.(wav|mp3)$/, '.aiff');
+      const tempTextFile = outputFile.replace(/\.mp3$/, '.txt');
+      await fs.writeFile(tempTextFile, cleanedText, 'utf8');
 
-      // Use Samantha voice (more natural female) or Daniel (natural male)
-      // Slower rate for better comprehension (150-160 WPM instead of 180)
-      const sayCommand = `say -f "${tempTextFile}" -o "${tempAiffFile}" -v Samantha -r 160`;
-      console.log(`Running: ${sayCommand}`);
+      const edgeCommand = 'edge-tts --voice en-US-JennyNeural --rate=-5% -f "' + tempTextFile + '" --write-media "' + outputFile + '"';
+      console.log('Running: edge-tts with JennyNeural voice');
 
-      await execAsync(sayCommand);
+      await execAsync(edgeCommand);
 
-      // Convert AIFF to MP3 if needed using ffmpeg
-      if (outputFile.endsWith('.mp3')) {
-        const ffmpegCommand = `ffmpeg -y -i "${tempAiffFile}" -acodec mp3 -ab 128k "${outputFile}"`;
-        console.log(`Converting to MP3: ${ffmpegCommand}`);
-        await execAsync(ffmpegCommand);
+      await fs.unlink(tempTextFile);
 
-        // Clean up temporary AIFF file
-        await execAsync(`rm "${tempAiffFile}"`);
-      } else {
-        // If output format is AIFF, just rename
-        await execAsync(`mv "${tempAiffFile}" "${outputFile}"`);
-      }
-
-      // Clean up temporary text file
-      await execAsync(`rm "${tempTextFile}"`);
-
-      console.log(`Audio content written to file: ${outputFile}`);
+      const stats = await fs.stat(outputFile);
+      console.log('Audio content written to file: ' + outputFile);
+      console.log('Audio file size: ' + (stats.size / 1024 / 1024).toFixed(2) + ' MB');
     } catch (error) {
       console.error('TTS Error:', error);
       throw error;
