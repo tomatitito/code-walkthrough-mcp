@@ -1,0 +1,78 @@
+
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto:wght@400;700&display=swap');
+      body {
+        margin: 0;
+        padding: 60px;
+        background: #1a1b26;
+        color: #c0caf5;
+        font-family: 'Roboto', sans-serif;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      h2 {
+        font-family: 'Roboto', sans-serif;
+        font-size: 42px;
+        margin-bottom: 10px;
+        font-weight: 700;
+      }
+      .stats {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 22px;
+        color: #7aa2f7;
+        margin-bottom: 30px;
+      }
+      .additions { color: #9ece6a; }
+      .deletions { color: #f7768e; }
+      pre {
+        background: #24283b;
+        padding: 30px;
+        border-radius: 12px;
+        overflow-x: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 16px;
+        line-height: 1.8;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        border: 1px solid #414868;
+      }
+      .hljs-meta { display: none; }
+    </style>
+  </head>
+  <body>
+    <h2>tts.ts</h2>
+    <div class="stats">
+      <span class="additions">+17</span>
+      <span class="deletions">-0</span>
+      <span style="margin-left: 20px;">added</span>
+    </div>
+    <pre><code class="hljs"><span class="hljs-comment">diff --git a/tts.ts b/tts.ts</span>
+new file mode 100644
+<span class="hljs-comment">index 0000000..d835ddd</span>
+<span class="hljs-comment">--- /dev/null</span>
+<span class="hljs-comment">+++ b/tts.ts</span>
+<span class="hljs-meta">@@ -0,0 +1,17 @@</span>
+<span class="hljs-addition">+import * as say from &#x27;say&#x27;;</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+export class TextToSpeechConverter {</span>
+<span class="hljs-addition">+  generateAudio(text: string, outputFile: string): Promise&lt;void&gt; {</span>
+<span class="hljs-addition">+    return new Promise((resolve, reject) =&gt; {</span>
+<span class="hljs-addition">+      // The &#x27;say&#x27; library uses a callback-based API. We wrap it in a Promise</span>
+<span class="hljs-addition">+      // to make it compatible with our async/await workflow.</span>
+<span class="hljs-addition">+      say.export(text, undefined, 1, outputFile, (err) =&gt; {</span>
+<span class="hljs-addition">+        if (err) {</span>
+<span class="hljs-addition">+          return reject(err);</span>
+<span class="hljs-addition">+        }</span>
+<span class="hljs-addition">+        console.log(`Audio content written to file: ${outputFile}`);</span>
+<span class="hljs-addition">+        resolve();</span>
+<span class="hljs-addition">+      });</span>
+<span class="hljs-addition">+    });</span>
+<span class="hljs-addition">+  }</span>
+<span class="hljs-addition">+}</span>
+</code></pre>
+  </body>
+  </html>

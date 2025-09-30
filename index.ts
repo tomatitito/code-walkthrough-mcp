@@ -255,23 +255,25 @@ export class GitCommitVideoServer {
       outro: this.generateOutro(commitInfo, style),
     };
 
-    // Generate full narrative text for TTS
-    const pauseShort = style === "beginner" ? ". " : ". ";
-    const pauseLong = style === "beginner" ? ". ... " : ". ";
+    // Generate full narrative text for TTS with natural pauses
+    // Using commas and periods for natural pacing
+    const pauseShort = ", ";  // Natural breath pause
+    const pauseMedium = ". ";  // Sentence end
+    const pauseLong = ". [[slnc 500]] ";  // Longer pause using silence marker
 
     let fullText = script.intro + pauseLong;
 
     script.sections.forEach((section: any, index: number) => {
       if (style === "beginner" && index === 0) {
-        fullText += "Let's start by looking at the first file. ";
+        fullText += "Let's start by looking at the first file" + pauseMedium;
       } else if (style === "beginner" && index > 0) {
-        fullText += "Next, let's examine another file. ";
+        fullText += pauseLong + "Next" + pauseShort + "let's examine another file" + pauseMedium;
       }
 
-      fullText += section.explanation + pauseShort;
+      fullText += section.explanation + pauseMedium;
 
       if (style === "beginner" && index < script.sections.length - 1) {
-        fullText += "Moving on. ";
+        fullText += "Moving on" + pauseMedium;
       }
     });
 
@@ -397,12 +399,12 @@ export class GitCommitVideoServer {
     const dateStr = new Date(commitInfo.date).toLocaleDateString();
 
     if (style === "beginner") {
-      return `Welcome to this code walkthrough! Today we'll explore a commit made by ${commitInfo.author} on ${dateStr}. The commit message says: "${commitInfo.message}". Let's see what changes were made to the codebase.`;
+      return `Welcome to this code walkthrough! [[slnc 300]] Today, we'll explore a commit made by ${commitInfo.author} on ${dateStr}. [[slnc 200]] The commit message says, "${commitInfo.message}". [[slnc 300]] Let's see what changes were made to the codebase`;
     } else if (style === "overview") {
-      return `Commit ${commitInfo.hash.slice(0, 8)} by ${commitInfo.author}: ${commitInfo.message}`;
+      return `Commit ${commitInfo.hash.slice(0, 8)} by ${commitInfo.author}, ${commitInfo.message}`;
     }
 
-    return `This is a technical walkthrough of commit ${commitInfo.hash.slice(0, 8)} by ${commitInfo.author}. The commit titled "${commitInfo.message}" was made on ${dateStr}. Let's examine the changes in detail.`;
+    return `This is a technical walkthrough of commit ${commitInfo.hash.slice(0, 8)}, by ${commitInfo.author}. [[slnc 200]] The commit, titled "${commitInfo.message}", was made on ${dateStr}. [[slnc 300]] Let's examine the changes in detail`;
   }
 
   private generateOutro(commitInfo: any, style: string): string {
@@ -411,12 +413,12 @@ export class GitCommitVideoServer {
     const fileCount = commitInfo.files.length;
 
     if (style === "beginner") {
-      return `That concludes our walkthrough! This commit modified ${fileCount} file${fileCount > 1 ? 's' : ''}, adding ${totalAdditions} new line${totalAdditions !== 1 ? 's' : ''} and removing ${totalDeletions} line${totalDeletions !== 1 ? 's' : ''}. These changes help improve and maintain the codebase.`;
+      return `And that concludes our walkthrough! [[slnc 300]] This commit modified ${fileCount} file${fileCount > 1 ? 's' : ''}, [[slnc 100]] adding ${totalAdditions} new line${totalAdditions !== 1 ? 's' : ''}, and removing ${totalDeletions} line${totalDeletions !== 1 ? 's' : ''}. [[slnc 200]] These changes help improve and maintain the codebase`;
     } else if (style === "overview") {
-      return `Summary: ${fileCount} files changed, ${totalAdditions} insertions, ${totalDeletions} deletions.`;
+      return `Summary, ${fileCount} files changed, ${totalAdditions} insertions, ${totalDeletions} deletions`;
     }
 
-    return `This commit affects ${fileCount} file${fileCount > 1 ? 's' : ''} with ${totalAdditions} line addition${totalAdditions !== 1 ? 's' : ''} and ${totalDeletions} line deletion${totalDeletions !== 1 ? 's' : ''}. The changes represent a focused modification to the codebase architecture.`;
+    return `In summary, this commit affects ${fileCount} file${fileCount > 1 ? 's' : ''}, [[slnc 100]] with ${totalAdditions} line addition${totalAdditions !== 1 ? 's' : ''} and ${totalDeletions} line deletion${totalDeletions !== 1 ? 's' : ''}. [[slnc 200]] The changes represent a focused modification to the codebase architecture`;
   }
 
   private calculateSectionDuration(file: FileChange, style: string): number {
@@ -435,27 +437,27 @@ export class GitCommitVideoServer {
 
     if (style === "beginner") {
       if (file.status === "added") {
-        return `This commit creates a new ${fileType} called ${fileName}. Adding ${file.additions} lines of code, this file introduces new functionality to our project.`;
+        return `This commit creates a new ${fileType}, called ${fileName}. [[slnc 200]] Adding ${file.additions} lines of code, [[slnc 100]] this file introduces new functionality to our project`;
       } else if (file.status === "deleted") {
-        return `This commit removes the ${fileType} ${fileName}. The file contained ${file.deletions} lines that are no longer needed.`;
+        return `This commit removes the ${fileType}, ${fileName}. [[slnc 200]] The file contained ${file.deletions} lines that are no longer needed`;
       } else {
-        return `This commit updates the ${fileType} ${fileName}. It adds ${file.additions} new lines and removes ${file.deletions} existing lines, improving the code's functionality.`;
+        return `This commit updates the ${fileType}, ${fileName}. [[slnc 200]] It adds ${file.additions} new lines, and removes ${file.deletions} existing lines, [[slnc 100]] improving the code's functionality`;
       }
     } else if (style === "overview") {
-      return `${file.path}: ${file.status} (+${file.additions}/-${file.deletions})`;
+      return `${file.path}, ${file.status}, plus ${file.additions}, minus ${file.deletions}`;
     }
 
     // Technical style
     if (file.status === "added") {
-      return `Introduces ${file.path}, a new ${fileType} with ${file.additions} lines implementing core functionality.`;
+      return `Introduces ${file.path}, [[slnc 100]] a new ${fileType} with ${file.additions} lines, implementing core functionality`;
     } else if (file.status === "deleted") {
-      return `Removes ${file.path}, eliminating ${file.deletions} lines of deprecated ${fileType} code.`;
+      return `Removes ${file.path}, [[slnc 100]] eliminating ${file.deletions} lines of deprecated ${fileType} code`;
     } else {
       const netChange = file.additions - file.deletions;
       const changeDescription = netChange > 0 ? `expanding by ${netChange} lines` :
         netChange < 0 ? `reducing by ${Math.abs(netChange)} lines` :
           "with balanced additions and deletions";
-      return `Refactors ${file.path}, ${changeDescription}. This ${fileType} modification includes ${file.additions} additions and ${file.deletions} deletions.`;
+      return `Refactors ${file.path}, [[slnc 100]] ${changeDescription}. [[slnc 200]] This ${fileType} modification includes ${file.additions} additions and ${file.deletions} deletions`;
     }
   }
 

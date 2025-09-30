@@ -1,0 +1,129 @@
+
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto:wght@400;700&display=swap');
+      body {
+        margin: 0;
+        padding: 60px;
+        background: #1a1b26;
+        color: #c0caf5;
+        font-family: 'Roboto', sans-serif;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      h2 {
+        font-family: 'Roboto', sans-serif;
+        font-size: 42px;
+        margin-bottom: 10px;
+        font-weight: 700;
+      }
+      .stats {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 22px;
+        color: #7aa2f7;
+        margin-bottom: 30px;
+      }
+      .additions { color: #9ece6a; }
+      .deletions { color: #f7768e; }
+      pre {
+        background: #24283b;
+        padding: 30px;
+        border-radius: 12px;
+        overflow-x: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 16px;
+        line-height: 1.8;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        border: 1px solid #414868;
+      }
+      .hljs-meta { display: none; }
+    </style>
+  </head>
+  <body>
+    <h2>example-usage.ts</h2>
+    <div class="stats">
+      <span class="additions">+49</span>
+      <span class="deletions">-14</span>
+      <span style="margin-left: 20px;">modified</span>
+    </div>
+    <pre><code class="hljs"><span class="hljs-comment">diff --git a/example-usage.ts b/example-usage.ts</span>
+<span class="hljs-comment">index ae068b1..63b0a8f 100644</span>
+<span class="hljs-comment">--- a/example-usage.ts</span>
+<span class="hljs-comment">+++ b/example-usage.ts</span>
+<span class="hljs-meta">@@ -5,20 +5,55 @@</span>
+  * This demonstrates the complete workflow from commit analysis to video generation
+  */
+ 
+<span class="hljs-deletion">-import { simpleGit } from &#x27;simple-git&#x27;;</span>
+<span class="hljs-addition">+import { GitCommitVideoServer } from &#x27;./index.js&#x27;;</span>
+ import * as fs from &#x27;fs/promises&#x27;;
+ import * as path from &#x27;path&#x27;;
+<span class="hljs-deletion">-import { HtmlToPngConverter } from &#x27;./html-to-png.js&#x27;;</span>
+<span class="hljs-deletion">-import { exec } from &#x27;child_process&#x27;;</span>
+<span class="hljs-deletion">-import { promisify } from &#x27;util&#x27;;</span>
+<span class="hljs-deletion">-</span>
+<span class="hljs-deletion">-const execAsync = promisify(exec);</span>
+<span class="hljs-deletion">-</span>
+<span class="hljs-deletion">-interface VideoConfig {</span>
+<span class="hljs-deletion">-  repoPath: string;</span>
+<span class="hljs-deletion">-  commitHash: string;</span>
+<span class="hljs-deletion">-  outputDir: string;</span>
+<span class="hljs-deletion">-  theme: &#x27;dark&#x27; | &#x27;light&#x27; | &#x27;github&#x27;;</span>
+<span class="hljs-deletion">-  style: &#x27;technical&#x27; | &#x27;beginner&#x27; | &#x27;overview&#x27;;</span>
+<span class="hljs-deletion">-  fps: number;</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+const commitHash = &#x27;5cdfd8f5abeab99e7fd7fed9f4b19abfd8a2b117&#x27;; // Replace with a recent commit hash from your repository</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+async function main() {</span>
+<span class="hljs-addition">+  const server = new GitCommitVideoServer();</span>
+<span class="hljs-addition">+  const outputDir = path.join(process.cwd(), &#x27;video_output&#x27;);</span>
+<span class="hljs-addition">+  const framesDir = path.join(outputDir, &#x27;frames&#x27;);</span>
+<span class="hljs-addition">+  const audioPath = path.join(outputDir, &#x27;narration.mp3&#x27;);</span>
+<span class="hljs-addition">+  const videoPath = path.join(outputDir, &#x27;walkthrough.mp4&#x27;);</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+  try {</span>
+<span class="hljs-addition">+    // 1. Setup directories</span>
+<span class="hljs-addition">+    await fs.mkdir(outputDir, { recursive: true });</span>
+<span class="hljs-addition">+    await fs.mkdir(framesDir, { recursive: true });</span>
+<span class="hljs-addition">+    console.log(`Output directory created at: ${outputDir}`);</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+    // 2. Analyze the commit</span>
+<span class="hljs-addition">+    console.log(`Analyzing commit: ${commitHash}`);</span>
+<span class="hljs-addition">+    const analyzeResult = await (server as any).analyzeCommit(process.cwd(), commitHash);</span>
+<span class="hljs-addition">+    const commitInfo = JSON.parse(analyzeResult.content[0].text);</span>
+<span class="hljs-addition">+    console.log(&#x27;Commit analysis complete.&#x27;);</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+    // 3. Generate enhanced video script with full narrative</span>
+<span class="hljs-addition">+    console.log(&#x27;Generating enhanced video script...&#x27;);</span>
+<span class="hljs-addition">+    const scriptResult = await (server as any).generateFullScript(commitInfo, &#x27;beginner&#x27;); // Try &#x27;technical&#x27;, &#x27;beginner&#x27;, or &#x27;overview&#x27;</span>
+<span class="hljs-addition">+    const scriptData = JSON.parse(scriptResult.content[0].text);</span>
+<span class="hljs-addition">+    console.log(`Video script generated. Estimated duration: ${scriptData.totalDuration} seconds`);</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+    // 4. Create video frames</span>
+<span class="hljs-addition">+    console.log(&#x27;Creating video frames...&#x27;);</span>
+<span class="hljs-addition">+    await (server as any).createFrames(commitInfo, framesDir, &#x27;dark&#x27;);</span>
+<span class="hljs-addition">+    console.log(`Video frames created in: ${framesDir}`);</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+    // 5. Generate audio narration using enhanced narrative</span>
+<span class="hljs-addition">+    console.log(&#x27;Generating audio narration...&#x27;);</span>
+<span class="hljs-addition">+    await (server as any).generateAudio(scriptData.narrative, audioPath);</span>
+<span class="hljs-addition">+    console.log(`Audio narration saved to: ${audioPath}`);</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+    // 6. Compile the video</span>
+<span class="hljs-addition">+    console.log(&#x27;Compiling video...&#x27;);</span>
+<span class="hljs-addition">+    await (server as any).compileVideo(framesDir, videoPath, audioPath, 0.5); // 0.5 fps = 2 seconds per frame</span>
+<span class="hljs-addition">+    console.log(`Video compiled successfully: ${videoPath}`);</span>
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+  } catch (error) {</span>
+<span class="hljs-addition">+    console.error(&#x27;An error occurred during the video generation process:&#x27;, error);</span>
+<span class="hljs-addition">+  }</span>
+ }
+<span class="hljs-addition">+</span>
+<span class="hljs-addition">+main();</span>
+</code></pre>
+  </body>
+  </html>

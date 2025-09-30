@@ -19,7 +19,9 @@ export class TextToSpeechConverter {
       // Output as AIFF first, then convert to MP3 if needed
       const tempAiffFile = outputFile.replace(/\.(wav|mp3)$/, '.aiff');
 
-      const sayCommand = `say -f "${tempTextFile}" -o "${tempAiffFile}" -v Alex -r 180`;
+      // Use Samantha voice (more natural female) or Daniel (natural male)
+      // Slower rate for better comprehension (150-160 WPM instead of 180)
+      const sayCommand = `say -f "${tempTextFile}" -o "${tempAiffFile}" -v Samantha -r 160`;
       console.log(`Running: ${sayCommand}`);
 
       await execAsync(sayCommand);
