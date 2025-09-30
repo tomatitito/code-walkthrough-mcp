@@ -87,6 +87,26 @@ bun run dev
 bun examples/example-usage.ts
 ```
 
+## Testing
+
+Run the integration test to verify everything works after making changes:
+
+```bash
+bun run test
+```
+
+This will:
+- ✓ Analyze a git commit
+- ✓ Generate a video script
+- ✓ Create video frames
+- ✓ Generate audio narration with Edge TTS
+- ✓ Compile the final video
+
+Test output is saved to `test_output/` and can be reviewed with:
+```bash
+open test_output/walkthrough.mp4
+```
+
 ## Voice Options
 
 The tool uses Microsoft Edge TTS. You can change the voice in `src/tts.ts`:

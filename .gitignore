@@ -3,4 +3,5 @@ dist/
 .DS_Store
 *.log
 video_output/
+test_output/
 bin/git-commit-video
