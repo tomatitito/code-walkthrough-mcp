@@ -261,7 +261,7 @@ export class GitCommitVideoServer {
 
     let fullText = script.intro + pauseLong;
 
-    script.sections.forEach((section, index) => {
+    script.sections.forEach((section: any, index: number) => {
       if (style === "beginner" && index === 0) {
         fullText += "Let's start by looking at the first file. ";
       } else if (style === "beginner" && index > 0) {
@@ -284,7 +284,7 @@ export class GitCommitVideoServer {
           text: JSON.stringify({
             structured: script,
             narrative: fullText,
-            totalDuration: script.sections.reduce((sum, section) => sum + section.duration, 0) +
+            totalDuration: script.sections.reduce((sum: number, section: any) => sum + section.duration, 0) +
               (style === "beginner" ? 8 : style === "overview" ? 3 : 5)
           }, null, 2),
         },

@@ -9,7 +9,7 @@ import { GitCommitVideoServer } from './index.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-const commitHash = '5cdfd8f5abeab99e7fd7fed9f4b19abfd8a2b117'; // Replace with a recent commit hash from your repository
+const commitHash = '7a15095300ce2258233ddf9310fd7cfefdd57f52'; // Latest commit with Phase 2 enhancements
 
 async function main() {
   const server = new GitCommitVideoServer();
