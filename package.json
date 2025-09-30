@@ -8,11 +8,12 @@
     "git-commit-video": "./bin/git-commit-video"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "bun run build:tsc",
+    "build:tsc": "bun x tsc",
     "build:bin": "bun build src/cli.ts --compile --outfile bin/git-commit-video",
-    "watch": "tsc --watch",
-    "start": "node dist/src/index.js",
-    "dev": "tsc && node dist/src/index.js"
+    "watch": "bun x tsc --watch",
+    "start": "bun dist/src/index.js",
+    "dev": "bun run build:tsc && bun dist/src/index.js"
   },
   "keywords": [
     "mcp",
@@ -31,10 +32,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "bun": ">=1.0.0"
   }
 }

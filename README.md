@@ -21,13 +21,13 @@ Generate narrated video walkthroughs of git commits with AI-powered explanations
 
 ```bash
 # Install dependencies
-npm install
+bun install
 
 # Build TypeScript
-npm run build
+bun run build
 
 # Compile executable
-npm run build:bin
+bun run build:bin
 ```
 
 ## Usage
@@ -78,13 +78,13 @@ Options:
 
 ```bash
 # Watch mode
-npm run watch
+bun run watch
 
 # Run MCP server
-npm run dev
+bun run dev
 
 # Run example
-npx tsx examples/example-usage.ts
+bun examples/example-usage.ts
 ```
 
 ## Voice Options
