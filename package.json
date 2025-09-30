@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "description": "MCP server for generating video walkthroughs of git commits",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
+  "bin": {
+    "git-commit-video": "./bin/git-commit-video"
+  },
   "scripts": {
     "build": "tsc",
+    "build:bin": "bun build src/cli.ts --compile --outfile bin/git-commit-video",
     "watch": "tsc --watch",
-    "start": "node dist/index.js",
-    "dev": "tsc && node dist/index.js"
+    "start": "node dist/src/index.js",
+    "dev": "tsc && node dist/src/index.js"
   },
   "keywords": [
     "mcp",

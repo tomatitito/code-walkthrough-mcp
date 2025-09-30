@@ -5,7 +5,7 @@
  * This demonstrates the complete workflow from commit analysis to video generation
  */
 
-import { GitCommitVideoServer } from './index.js';
+import { GitCommitVideoServer } from '../src/index.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 

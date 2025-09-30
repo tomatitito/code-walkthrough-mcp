@@ -1,4 +1,6 @@
-node_modules
-dist
-video_output
-git-commit-video
+node_modules/
+dist/
+.DS_Store
+*.log
+video_output/
+bin/git-commit-video
