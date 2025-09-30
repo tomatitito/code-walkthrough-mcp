@@ -1,0 +1,490 @@
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { simpleGit, SimpleGit } from 'simple-git';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { HtmlToPngConverter } from './html-to-png.js';
+import hljs from 'highlight.js';
+
+const execAsync = promisify(exec);
+
+interface CommitInfo {
+  hash: string;
+  author: string;
+  date: string;
+  message: string;
+  files: FileChange[];
+}
+
+interface FileChange {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  diff: string;
+}
+
+export class GitCommitVideoServer {
+  private server: Server;
+  private git: SimpleGit;
+
+  constructor() {
+    this.server = new Server(
+      {
+        name: "git-commit-video-server",
+        version: "0.1.0",
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      }
+    );
+
+    this.git = simpleGit();
+    this.setupHandlers();
+  }
+
+  private setupHandlers() {
+    // List available tools
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: "analyze_commit",
+          description: "Analyze a git commit and extract detailed information about changes",
+          inputSchema: {
+            type: "object",
+            properties: {
+              repoPath: {
+                type: "string",
+                description: "Path to the git repository",
+              },
+              commitHash: {
+                type: "string",
+                description: "Git commit hash to analyze",
+              },
+            },
+            required: ["repoPath", "commitHash"],
+          },
+        },
+        {
+          name: "generate_video_script",
+          description: "Generate a narrative script for explaining commit changes",
+          inputSchema: {
+            type: "object",
+            properties: {
+              commitInfo: {
+                type: "object",
+                description: "Commit information from analyze_commit",
+              },
+              style: {
+                type: "string",
+                description: "Presentation style: 'technical', 'beginner', 'overview'",
+                enum: ["technical", "beginner", "overview"],
+              },
+            },
+            required: ["commitInfo"],
+          },
+        },
+        {
+          name: "create_video_frames",
+          description: "Generate visual frames showing code changes",
+          inputSchema: {
+            type: "object",
+            properties: {
+              commitInfo: {
+                type: "object",
+                description: "Commit information",
+              },
+              outputDir: {
+                type: "string",
+                description: "Directory to save frames",
+              },
+              theme: {
+                type: "string",
+                description: "Visual theme: 'dark', 'light', 'github'",
+                enum: ["dark", "light", "github"],
+              },
+            },
+            required: ["commitInfo", "outputDir"],
+          },
+        },
+        {
+          name: "compile_video",
+          description: "Compile frames and audio into final video",
+          inputSchema: {
+            type: "object",
+            properties: {
+              framesDir: {
+                type: "string",
+                description: "Directory containing frames",
+              },
+              audioPath: {
+                type: "string",
+                description: "Path to audio narration (optional)",
+              },
+              outputPath: {
+                type: "string",
+                description: "Output video file path",
+              },
+              fps: {
+                type: "number",
+                description: "Frames per second (default: 2)",
+              },
+            },
+            required: ["framesDir", "outputPath"],
+          },
+        },
+      ],
+    }));
+
+    // Handle tool calls
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+
+      if (!args) {
+        throw new Error("Arguments are required");
+      }
+
+      try {
+        switch (name) {
+          case "analyze_commit":
+            return await this.analyzeCommit(args.repoPath as string, args.commitHash as string);
+
+          case "generate_video_script":
+            return await this.generateScript(args.commitInfo as object, (args.style as string) || "technical");
+
+          case "create_video_frames":
+            return await this.createFrames(args.commitInfo as object, args.outputDir as string, (args.theme as string) || "dark");
+
+          case "compile_video":
+            return await this.compileVideo(
+              args.framesDir as string,
+              args.outputPath as string,
+              args.audioPath as string,
+              (args.fps as number) || 2
+            );
+
+          default:
+            throw new Error(`Unknown tool: ${name}`);
+        }
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    });
+  }
+
+  private async analyzeCommit(repoPath: string, commitHash: string) {
+    this.git = simpleGit(repoPath);
+
+    // Get commit details
+    const log = await this.git.show([commitHash, "--stat", "--format=%H%n%an%n%ai%n%s%n%b"]);
+    const diff = await this.git.show([commitHash, "--unified=3"]);
+
+    // Parse commit info
+    const lines = log.split('\n');
+    const commitInfo: CommitInfo = {
+      hash: lines[0],
+      author: lines[1],
+      date: lines[2],
+      message: lines.slice(3).join('\n').trim(),
+      files: [],
+    };
+
+    // Get file statistics
+    const parents = await this.git.raw(['rev-list', '--parents', '-n', '1', commitHash]);
+    const isInitialCommit = parents.split(' ').length === 1;
+
+    if (isInitialCommit) {
+      const files = await this.git.show([commitHash, '--pretty=format:', '--name-only']);
+      commitInfo.files = files.split('\n').filter(f => f).map(f => ({
+        path: f,
+        status: 'added',
+        additions: 0, // not easily available
+        deletions: 0, // not easily available
+        diff: this.extractFileDiff(diff, f)
+      }));
+    } else {
+      const diffSummary = await this.git.diffSummary([`${commitHash}^`, commitHash]);
+      commitInfo.files = diffSummary.files.map(file => {
+        if ('insertions' in file && 'deletions' in file) {
+          return {
+            path: file.file,
+            status: this.getFileStatus(file),
+            additions: file.insertions,
+            deletions: file.deletions,
+            diff: this.extractFileDiff(diff, file.file),
+          }
+        }
+        return {
+          path: file.file,
+          status: 'binary',
+          additions: 0,
+          deletions: 0,
+          diff: ''
+        }
+      });
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(commitInfo, null, 2),
+        },
+      ],
+    };
+  }
+
+  private getFileStatus(file: any): string {
+    if (file.binary) return "binary";
+    if (file.insertions > 0 && file.deletions === 0) return "added";
+    if (file.insertions === 0 && file.deletions > 0) return "deleted";
+    return "modified";
+  }
+
+  private extractFileDiff(fullDiff: string, filePath: string): string {
+    const fileMarker = `diff --git a/${filePath}`;
+    const startIdx = fullDiff.indexOf(fileMarker);
+    if (startIdx === -1) return "";
+
+    const nextFileIdx = fullDiff.indexOf("diff --git", startIdx + 1);
+    return nextFileIdx === -1
+      ? fullDiff.slice(startIdx)
+      : fullDiff.slice(startIdx, nextFileIdx);
+  }
+
+  private async generateScript(commitInfo: any, style: string) {
+    // This would integrate with an LLM to generate natural language explanations
+    const script = {
+      intro: `This commit by ${commitInfo.author} ${commitInfo.message}`,
+      sections: commitInfo.files.map((file: FileChange) => ({
+        file: file.path,
+        explanation: this.generateFileExplanation(file, style),
+        duration: Math.max(3, file.additions + file.deletions) / 10, // seconds
+      })),
+      outro: `These changes affect ${commitInfo.files.length} file(s) with ${commitInfo.files.reduce((sum: number, f: FileChange) => sum + f.additions, 0)
+        } additions and ${commitInfo.files.reduce((sum: number, f: FileChange) => sum + f.deletions, 0)
+        } deletions.`,
+    };
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(script, null, 2),
+        },
+      ],
+    };
+  }
+
+  private generateFileExplanation(file: FileChange, style: string): string {
+    const action = file.status === "added" ? "adds" :
+      file.status === "deleted" ? "removes" : "modifies";
+
+    if (style === "beginner") {
+      return `This ${action} the file ${path.basename(file.path)}, making changes to improve the code.`;
+    } else if (style === "overview") {
+      return `${file.path}: ${file.additions} additions, ${file.deletions} deletions`;
+    }
+
+    return `${action} ${file.path} with ${file.additions} line additions and ${file.deletions} deletions`;
+  }
+
+  private async createFrames(commitInfo: any, outputDir: string, theme: string) {
+    await fs.mkdir(outputDir, { recursive: true });
+
+    // Generate HTML frames for each change
+    const frames: string[] = [];
+
+    // Title frame
+    const titleFrame = this.generateTitleFrame(commitInfo, theme);
+    const titlePath = path.join(outputDir, "frame_000.html");
+    await fs.writeFile(titlePath, titleFrame);
+    frames.push(titlePath);
+
+    // File change frames
+    for (let i = 0; i < commitInfo.files.length; i++) {
+      const file = commitInfo.files[i];
+      const frameHtml = this.generateFileFrame(file, theme);
+      const framePath = path.join(outputDir, `frame_${String(i + 1).padStart(3, '0')}.html`);
+      await fs.writeFile(framePath, frameHtml);
+      frames.push(framePath);
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Generated ${frames.length} frames in ${outputDir}`,
+        },
+      ],
+    };
+  }
+
+  private generateTitleFrame(commitInfo: any, theme: string): string {
+    const bgColor = theme === "dark" ? "#1a1b26" : "#ffffff";
+    const textColor = theme === "dark" ? "#c0caf5" : "#333333";
+
+    return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+      body {
+        margin: 0;
+        padding: 60px;
+        background: ${bgColor};
+        color: ${textColor};
+        font-family: 'Roboto', sans-serif;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+      }
+      h1 { font-size: 64px; margin-bottom: 20px; font-weight: 700; }
+      .meta { font-size: 28px; color: #7aa2f7; }
+      .message { font-size: 36px; margin-top: 40px; }
+    </style>
+  </head>
+  <body>
+    <h1>Git Commit Walkthrough</h1>
+    <div class="meta">
+      <div>Commit: ${commitInfo.hash.slice(0, 8)}</div>
+      <div>Author: ${commitInfo.author}</div>
+      <div>Date: ${new Date(commitInfo.date).toLocaleDateString()}</div>
+    </div>
+    <div class="message">${commitInfo.message}</div>
+  </body>
+  </html>`;
+  }
+  private generateFileFrame(file: FileChange, theme: string): string {
+    const bgColor = theme === "dark" ? "#1a1b26" : "#ffffff";
+    const textColor = theme === "dark" ? "#c0caf5" : "#333333";
+    const highlightedDiff = hljs.highlight(file.diff, { language: 'diff' }).value;
+
+    return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto:wght@400;700&display=swap');
+      body {
+        margin: 0;
+        padding: 60px;
+        background: ${bgColor};
+        color: ${textColor};
+        font-family: 'Roboto', sans-serif;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      h2 {
+        font-family: 'Roboto', sans-serif;
+        font-size: 42px;
+        margin-bottom: 10px;
+        font-weight: 700;
+      }
+      .stats {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 22px;
+        color: #7aa2f7;
+        margin-bottom: 30px;
+      }
+      .additions { color: #9ece6a; }
+      .deletions { color: #f7768e; }
+      pre {
+        background: #24283b;
+        padding: 30px;
+        border-radius: 12px;
+        overflow-x: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 16px;
+        line-height: 1.8;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        border: 1px solid #414868;
+      }
+      .hljs-meta { display: none; }
+    </style>
+  </head>
+  <body>
+    <h2>${file.path}</h2>
+    <div class="stats">
+      <span class="additions">+${file.additions}</span>
+      <span class="deletions">-${file.deletions}</span>
+      <span style="margin-left: 20px;">${file.status}</span>
+    </div>
+    <pre><code class="hljs">${highlightedDiff}</code></pre>
+  </body>
+  </html>`;
+  }
+
+  private async compileVideo(
+    framesDir: string,
+    outputPath: string,
+    audioPath?: string,
+    fps: number = 2
+  ) {
+    const converter = new HtmlToPngConverter();
+    const pngDir = path.join(framesDir, 'pngs');
+
+    try {
+      await converter.initialize();
+      await converter.convertDirectory(framesDir, pngDir);
+
+      const ffmpegCmd = audioPath
+        ? `ffmpeg -y -framerate ${fps} -pattern_type glob -i '${pngDir}/*.png' -i ${audioPath} -c:v libx264 -pix_fmt yuv420p -c:a aac ${outputPath}`
+        : `ffmpeg -y -framerate ${fps} -pattern_type glob -i '${pngDir}/*.png' -c:v libx264 -pix_fmt yuv420p ${outputPath}`;
+
+      await execAsync(ffmpegCmd);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Video created successfully: ${outputPath}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `FFmpeg error: ${error}. Note: You need ffmpeg installed.`,
+          },
+        ],
+      };
+    } finally {
+      await converter.close();
+      // Clean up the temporary PNG directory
+      await fs.rm(pngDir, { recursive: true, force: true });
+    }
+  }
+
+  async run() {
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+    console.error("Git Commit Video MCP Server running on stdio");
+  }
+}
+
+// Start the server
+const server = new GitCommitVideoServer();
+server.run().catch(console.error);

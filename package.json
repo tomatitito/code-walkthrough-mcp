@@ -1,0 +1,34 @@
+{
+  "name": "git-commit-video-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for generating video walkthroughs of git commits",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "git",
+    "video",
+    "walkthrough"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0",
+    "axios": "^1.12.2",
+    "highlight.js": "^11.11.1",
+    "puppeteer": "^24.22.3",
+    "simple-git": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
