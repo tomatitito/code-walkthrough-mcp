@@ -46,10 +46,10 @@ async function main() {
     await (server as any).generateAudio(scriptData.narrative, audioPath);
     console.log(`Audio narration saved to: ${audioPath}`);
 
-    // 6. Compile the video
+    // 6. Compile the video (skip audio since TTS isn't working)
     console.log('Compiling video...');
-    await (server as any).compileVideo(framesDir, videoPath, audioPath, 0.5); // 0.5 fps = 2 seconds per frame
-    console.log(`Video compiled successfully: ${videoPath}`);
+    const result = await (server as any).compileVideo(framesDir, videoPath, undefined, 0.5); // 0.5 fps = 2 seconds per frame
+    console.log('Video compilation result:', result.content[0].text);
 
   } catch (error) {
     console.error('An error occurred during the video generation process:', error);

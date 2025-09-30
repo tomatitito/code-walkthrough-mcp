@@ -56,7 +56,7 @@ export class HtmlToPngConverter {
     });
 
     // Wait a bit for any animations or rendering
-    await page.waitForTimeout(500);
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // Take screenshot
     await page.screenshot({
