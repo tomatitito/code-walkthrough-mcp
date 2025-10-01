@@ -21,7 +21,7 @@ import { extractCodebaseInfo } from './extractors/codebase.js';
 import { requestCommitAnalysis, requestDiffAnalysis, requestCodebaseAnalysis } from './stages/analysis.js';
 import { requestScriptGeneration } from './stages/script.js';
 import { generateVideo, cleanupTempFiles } from './stages/video.js';
-import { WalkthroughState, TargetSpec, PresentationStyle, Theme } from './types/state.js';
+import { WalkthroughState, TargetSpec, PresentationStyle, Theme, AnalysisResult } from './types/state.js';
 
 export class GitCommitVideoServer {
   private server: Server;
@@ -49,7 +49,7 @@ export class GitCommitVideoServer {
       tools: [
         {
           name: "generate_walkthrough",
-          description: "Generate a video walkthrough of git commits, changes, or codebase. This tool orchestrates an agent to analyze code and create narrated video content.",
+          description: "Generate a video walkthrough of git commits, changes, or codebase. This tool orchestrates an agent to analyze code and create narrated video content. Requires MCP sampling support.",
           inputSchema: {
             type: "object",
             properties: {
@@ -91,6 +91,90 @@ export class GitCommitVideoServer {
             required: ["repoPath", "target"],
           },
         },
+        {
+          name: "generate_video_from_script",
+          description: "Generate a video from pre-provided analysis and script. Use this when you don't have MCP sampling support - first ask an LLM to analyze the code and generate a script, then pass it to this tool.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              analysis: {
+                type: "object",
+                description: "Pre-generated analysis object with summary, files, and totalStats",
+                properties: {
+                  summary: {
+                    type: "object",
+                    properties: {
+                      achievement: { type: "string" },
+                      approach: { type: "string" },
+                    },
+                    required: ["achievement", "approach"],
+                  },
+                  files: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        path: { type: "string" },
+                        status: { type: "string", enum: ["added", "modified", "deleted"] },
+                        explanation: { type: "string" },
+                        impact: { type: "string" },
+                      },
+                      required: ["path", "status", "explanation", "impact"],
+                    },
+                  },
+                  totalStats: {
+                    type: "object",
+                    properties: {
+                      additions: { type: "number" },
+                      deletions: { type: "number" },
+                      filesChanged: { type: "number" },
+                    },
+                    required: ["filesChanged"],
+                  },
+                },
+                required: ["summary", "files", "totalStats"],
+              },
+              script: {
+                type: "object",
+                description: "Pre-generated script object with intro, sections, and conclusion",
+                properties: {
+                  intro: { type: "string" },
+                  sections: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        title: { type: "string" },
+                        narration: { type: "string" },
+                        codeSnippet: { type: "string" },
+                        duration: { type: "number" },
+                      },
+                      required: ["title", "narration"],
+                    },
+                  },
+                  conclusion: { type: "string" },
+                  estimatedDuration: { type: "number" },
+                },
+                required: ["intro", "sections", "conclusion"],
+              },
+              style: {
+                type: "string",
+                enum: ["beginner", "technical", "overview"],
+                description: "Presentation style (default: 'technical')",
+              },
+              outputPath: {
+                type: "string",
+                description: "Where to save the video (default: './walkthrough.mp4')",
+              },
+              theme: {
+                type: "string",
+                enum: ["dark", "light", "github"],
+                description: "Visual theme (default: 'dark')",
+              },
+            },
+            required: ["analysis", "script"],
+          },
+        },
       ],
     }));
 
@@ -106,9 +190,18 @@ export class GitCommitVideoServer {
         switch (name) {
           case "generate_walkthrough":
             return await this.generateWalkthrough(
-              request as any, // ctx will be on request object
+              this.server, // Pass the server instance which has createMessage
               args.repoPath as string,
               args.target as TargetSpec,
+              (args.style as PresentationStyle) || "technical",
+              (args.outputPath as string) || "./walkthrough.mp4",
+              (args.theme as Theme) || "dark"
+            );
+
+          case "generate_video_from_script":
+            return await this.generateVideoFromScript(
+              args.analysis as any,
+              args.script as any,
               (args.style as PresentationStyle) || "technical",
               (args.outputPath as string) || "./walkthrough.mp4",
               (args.theme as Theme) || "dark"
@@ -283,6 +376,85 @@ export class GitCommitVideoServer {
               walkthroughId: state.id,
               stage: state.stage,
               error: state.error,
+            }, null, 2),
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  /**
+   * Generate video from pre-provided analysis and script.
+   * This tool doesn't require sampling - the user provides the analysis and script directly.
+   */
+  private async generateVideoFromScript(
+    analysis: AnalysisResult,
+    script: any,
+    style: PresentationStyle,
+    outputPath: string,
+    theme: Theme
+  ) {
+    const state = {
+      id: randomUUID(),
+      stage: "video",
+      style,
+      outputPath,
+      theme,
+    };
+
+    try {
+      console.error('\n=== Starting Video Generation from Pre-Generated Script ===');
+
+      // Go directly to video generation - skip analysis and script stages
+      const videoResult = await generateVideo(
+        analysis,
+        script,
+        style,
+        theme,
+        outputPath
+      );
+
+      // Clean up temporary files
+      await cleanupTempFiles(videoResult.tempFiles);
+
+      // Return results
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "success",
+              walkthroughId: state.id,
+              video: {
+                status: "generated",
+                path: videoResult.videoPath,
+                duration: videoResult.duration,
+                frameCount: videoResult.frameCount,
+                hasAudio: videoResult.hasAudio,
+              },
+              output: {
+                videoPath: videoResult.videoPath,
+                duration: `${videoResult.duration.toFixed(2)}s`,
+                frames: videoResult.frameCount,
+                audio: videoResult.hasAudio ? 'Generated' : 'Skipped (silent video)',
+              },
+              note: "Video generated from pre-provided analysis and script (no sampling required)."
+            }, null, 2),
+          },
+        ],
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              walkthroughId: state.id,
+              stage: state.stage,
+              error: error instanceof Error ? error.message : String(error),
             }, null, 2),
           },
         ],

@@ -21,13 +21,12 @@ export async function requestScriptGeneration(
 
   try {
     // Request script from agent using MCP sampling
-    const response = await ctx.session.create_message({
+    const response = await ctx.createMessage({
       messages: [{
         role: "user",
         content: prompt
       }],
-      max_tokens: 3000,
-      temperature: 0.8, // Higher temperature for more creative narration
+      maxTokens: 3000,
     });
 
     // Extract and parse the response

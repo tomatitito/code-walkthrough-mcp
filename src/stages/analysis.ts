@@ -23,13 +23,12 @@ export async function requestCommitAnalysis(
 
   try {
     // Request analysis from agent using MCP sampling
-    const response = await ctx.session.create_message({
+    const response = await ctx.createMessage({
       messages: [{
         role: "user",
         content: prompt
       }],
-      max_tokens: 4000,
-      temperature: 0.7,
+      maxTokens: 4000,
     });
 
     // Extract and parse the response
@@ -53,13 +52,12 @@ export async function requestDiffAnalysis(
 
   try {
     // Request analysis from agent using MCP sampling
-    const response = await ctx.session.create_message({
+    const response = await ctx.createMessage({
       messages: [{
         role: "user",
         content: prompt
       }],
-      max_tokens: 4000,
-      temperature: 0.7,
+      maxTokens: 4000,
     });
 
     // Extract and parse the response
@@ -83,13 +81,12 @@ export async function requestCodebaseAnalysis(
 
   try {
     // Request analysis from agent using MCP sampling
-    const response = await ctx.session.create_message({
+    const response = await ctx.createMessage({
       messages: [{
         role: "user",
         content: prompt
       }],
-      max_tokens: 4000,
-      temperature: 0.7,
+      maxTokens: 4000,
     });
 
     // Extract and parse the response
