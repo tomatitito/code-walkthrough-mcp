@@ -72,7 +72,7 @@ If your MCP client doesn't support sampling (like Claude Code), use the two-step
 Ask your LLM to analyze the code:
 
 ```
-Please analyze this codebase and provide JSON with this structure:
+Please analyze this codebase and provide a JSON response with the following structure:
 
 {
   "summary": {
@@ -82,7 +82,7 @@ Please analyze this codebase and provide JSON with this structure:
   "files": [
     {
       "path": "path/to/file.ts",
-      "status": "added|modified|deleted",
+      "status": "added" | "modified" | "deleted",
       "explanation": "What this file does",
       "impact": "Why it's important"
     }
@@ -93,26 +93,35 @@ Please analyze this codebase and provide JSON with this structure:
     "filesChanged": 5
   }
 }
+
+Analyze the following project: [project name/path]
+Focus on: [specific files or areas to analyze]
 ```
 
 Then ask for a script:
 
 ```
-Based on this analysis, create a video script with this structure:
+Based on this analysis, create a video script with the following JSON structure:
 
 {
-  "intro": "Introduction text",
+  "intro": "Introduction text for the video",
   "sections": [
     {
       "title": "Section title",
-      "narration": "What to say",
-      "codeSnippet": "optional code",
+      "narration": "What to say in this section",
+      "codeSnippet": "optional code to display",
       "duration": 5
     }
   ],
   "conclusion": "Concluding remarks",
   "estimatedDuration": 30
 }
+
+Style: technical|beginner|overview
+Target audience: [describe your audience]
+
+Analysis:
+[paste the analysis JSON you received from the previous step]
 ```
 
 #### Step 2: Generate Video
