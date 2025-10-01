@@ -2,14 +2,22 @@
 
 ## Purpose
 
-This tool generates video walkthroughs of git commits to help developers understand code changes through visual and audio narration. It transforms technical git diffs into accessible, narrated video content that explains what was changed, why, and how.
+This tool generates video walkthroughs of git commits, unstaged or staged changes or even whole codebases to help developers understand the code in question and the changes to it through visual and audio narration. It transforms technical source code, git commits and commit messages and possibly git diffs into accessible, narrated video content that explains the intent of the code and in case of git commits, staged or unstaged changes, what was changed, why, and how.
 
 ## Core Intent
 
-The primary goal is to make code review and commit understanding more accessible by:
-- Providing visual representations of code changes
+The primary goal is to make code review more accessible by:
+- Providing visual representations of code and code changes
 - Generating natural-sounding audio narration that explains changes
 - Offering different presentation styles for different audiences (beginners, technical reviewers, quick overviews)
+
+## General Approach
+
+This tool, which is supposed to be used as an mcp server, takes an unusual approach in that it inverts the flow of communication compared to a regular client-agent interaction with tool calls, where the user would prompt the model, the model would then call a tool and report the result of this tool call back to the user. Instead, this tool, when called by an agent, will respond with a prompt for the agent. When the agent comes back with a response, the tool will consume this response and use it in the process of generating the video walkthrough.
+
+The reason for this approach is that analysis of code and generation of summaries that result from these analyses require an agent that has the capability of reading whatever code is of interest to the user at the time the agent is called. However, generating frames that can be combined into a video once the content of these frames is known or generating speech from text are tasks that can very well be handled by a separate tool or service.
+
+This means that for every single task that is neccessary in the process of generating a video walkthrough of code with an accompanying audio track that explains the intent of the code, how it is structured, and so on, this tool needs to provide two tool calls: one that returns a prompt to the agent to actually gather the content, and one that takes the response and uses it to generate the video walkthrough. Should the agent need more information to finish the generation of the video, the tool must provide this so that the agent loop can continue until the work is done.
 
 ## User Experience
 
@@ -39,6 +47,7 @@ The narration should sound natural and human-like:
 - Includes natural pauses at logical breaks
 - Emphasizes important information through pacing
 - Avoids robotic, monotone delivery
+- Avoids reading the technical details of git diffs like a lot of "+"'s or "-"s
 
 ### Presentation Styles
 
@@ -51,19 +60,17 @@ Three styles are available to match different use cases:
 ## What the Tool Does
 
 ### Input
+The input is provided by the agent, that has been asked to generate a video walkthrough of one of the following: 
 - A git repository path
 - A commit hash to analyze
+- Unstaged changes in the working directory
+- Staged changes for the current git project
+- The whole codebase in the current working directory
+The agent delegates to the tool in order to get further instructions.
 
 ### Processing
-1. Extracts commit metadata (author, date, message)
-2. Analyzes all file changes and generates diffs
-3. Creates a narrative script explaining the changes
-4. Generates visual frames showing:
-   - Title frame with commit overview
-   - One frame per changed file with syntax-highlighted diff
-5. Converts frames to images
-6. Generates audio narration from the script
-7. Compiles frames and audio into a video file
+- The tool then generates a prompt for the agent to analyze the relevant code. If the agent has the ability to use subagents, the tool instructs the agent to use a subagent for each analysis.
+- The tool then takes the response from the agent and processes it to generate whatever is neccessary. The reponse could either be related to the analysis, or to the video content, or the the spoken narration and the audio that accompanies the video.
 
 ### Output
 - An MP4 video file with:
@@ -102,18 +109,4 @@ This tool does NOT:
 
 ## Technical Constraints
 
-- Requires Node.js 18+
-- Requires FFmpeg for video compilation
-- Uses macOS `say` command for text-to-speech (macOS only currently)
-- Generates intermediate HTML and image files
-- Video compilation can be CPU-intensive for large commits
-
-## Future Considerations
-
-While not currently implemented, future enhancements could include:
-- Multi-commit range analysis
-- Branch visualization
-- Custom visual themes
-- Cross-platform TTS support
-- Interactive timeline features
-- Multiple export formats
+The tool should generate one or more tests to make sure that whatever is generated actually works and can be committed, even if it is not the finished video walkthrough tool yet.
