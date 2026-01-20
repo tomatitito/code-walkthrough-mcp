@@ -22,6 +22,7 @@ import { requestCommitAnalysis, requestDiffAnalysis, requestCodebaseAnalysis } f
 import { requestScriptGeneration } from './stages/script.js';
 import { generateVideo, cleanupTempFiles } from './stages/video.js';
 import { WalkthroughState, TargetSpec, PresentationStyle, Theme, AnalysisResult } from './types/state.js';
+import { generateCommitAnalysisPrompt, generateDiffAnalysisPrompt, generateCodebaseAnalysisPrompt, generateScriptPrompt } from './utils/prompts.js';
 
 export class GitCommitVideoServer {
   private server: Server;
@@ -92,8 +93,96 @@ export class GitCommitVideoServer {
           },
         },
         {
+          name: "generate_script",
+          description: "Generate analysis and script for a walkthrough video without creating the video. Use this when you want to review or edit the script before generating the video, or when you just want the script content. Requires MCP sampling support.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              repoPath: {
+                type: "string",
+                description: "Path to the git repository",
+              },
+              target: {
+                type: "object",
+                description: "What to analyze",
+                properties: {
+                  type: {
+                    type: "string",
+                    enum: ["commit", "staged", "unstaged", "codebase"],
+                    description: "Type of content to analyze",
+                  },
+                  commitHash: {
+                    type: "string",
+                    description: "Git commit hash (required when type is 'commit')",
+                  },
+                },
+                required: ["type"],
+              },
+              style: {
+                type: "string",
+                enum: ["beginner", "technical", "overview"],
+                description: "Presentation style (default: 'technical')",
+              },
+            },
+            required: ["repoPath", "target"],
+          },
+        },
+        {
+          name: "prepare_analysis_prompt",
+          description: "STEP 1 for clients without sampling: Extract git/code data and return a formatted prompt for an LLM to analyze. Copy the returned prompt to your LLM to get the analysis JSON.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              repoPath: {
+                type: "string",
+                description: "Path to the git repository",
+              },
+              target: {
+                type: "object",
+                description: "What to analyze",
+                properties: {
+                  type: {
+                    type: "string",
+                    enum: ["commit", "staged", "unstaged", "codebase"],
+                    description: "Type of content to analyze",
+                  },
+                  commitHash: {
+                    type: "string",
+                    description: "Git commit hash (required when type is 'commit')",
+                  },
+                },
+                required: ["type"],
+              },
+            },
+            required: ["repoPath", "target"],
+          },
+        },
+        {
+          name: "prepare_script_prompt",
+          description: "STEP 2 for clients without sampling: Take analysis JSON from step 1 and return a formatted prompt for generating the video script. Copy the returned prompt to your LLM to get the script JSON.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              analysis: {
+                type: "object",
+                description: "Analysis JSON from step 1 (prepare_analysis_prompt)",
+              },
+              style: {
+                type: "string",
+                enum: ["beginner", "technical", "overview"],
+                description: "Presentation style (default: 'technical')",
+              },
+              targetType: {
+                type: "string",
+                description: "Type of content being analyzed (e.g., 'commit', 'staged changes', 'codebase')",
+              },
+            },
+            required: ["analysis"],
+          },
+        },
+        {
           name: "generate_video_from_script",
-          description: "Generate a video from pre-provided analysis and script. Use this when you don't have MCP sampling support - first ask an LLM to analyze the code and generate a script, then pass it to this tool.",
+          description: "STEP 3 for clients without sampling: Generate a video from analysis and script JSON. Use this after completing steps 1 and 2, or provide your own analysis and script JSON.",
           inputSchema: {
             type: "object",
             properties: {
@@ -196,6 +285,27 @@ export class GitCommitVideoServer {
               (args.style as PresentationStyle) || "technical",
               (args.outputPath as string) || "./walkthrough.mp4",
               (args.theme as Theme) || "dark"
+            );
+
+          case "generate_script":
+            return await this.generateScript(
+              this.server,
+              args.repoPath as string,
+              args.target as TargetSpec,
+              (args.style as PresentationStyle) || "technical"
+            );
+
+          case "prepare_analysis_prompt":
+            return await this.prepareAnalysisPrompt(
+              args.repoPath as string,
+              args.target as TargetSpec
+            );
+
+          case "prepare_script_prompt":
+            return await this.prepareScriptPrompt(
+              args.analysis as any,
+              (args.style as PresentationStyle) || "technical",
+              (args.targetType as string) || "commit"
             );
 
           case "generate_video_from_script":
@@ -376,6 +486,238 @@ export class GitCommitVideoServer {
               walkthroughId: state.id,
               stage: state.stage,
               error: state.error,
+            }, null, 2),
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  /**
+   * Generate analysis and script only, without creating the video.
+   * Useful for reviewing/editing the script before video generation.
+   */
+  private async generateScript(
+    ctx: any,
+    repoPath: string,
+    target: TargetSpec,
+    style: PresentationStyle
+  ) {
+    const state = {
+      id: randomUUID(),
+      repoPath,
+      target,
+      style,
+      stage: "analysis",
+    };
+
+    try {
+      // Stage 1: Extract target content (commit, diff, or codebase)
+      let targetData: any;
+      let targetType: string;
+
+      switch (target.type) {
+        case "commit":
+          if (!target.commitHash) {
+            throw new Error("commitHash is required for type 'commit'");
+          }
+          targetData = await extractCommitInfo(repoPath, target.commitHash);
+          targetType = "commit";
+          break;
+
+        case "staged":
+          targetData = await extractStagedChanges(repoPath);
+          targetType = "staged changes";
+          break;
+
+        case "unstaged":
+          targetData = await extractUnstagedChanges(repoPath);
+          targetType = "unstaged changes";
+          break;
+
+        case "codebase":
+          targetData = await extractCodebaseInfo(repoPath);
+          targetType = "codebase";
+          break;
+
+        default:
+          throw new Error(`Unknown target type: ${target.type}`);
+      }
+
+      // Stage 2: Request analysis from agent via sampling
+      state.stage = "analysis";
+
+      let analysis;
+      if (target.type === "commit") {
+        analysis = await requestCommitAnalysis(ctx, targetData);
+      } else if (target.type === "codebase") {
+        analysis = await requestCodebaseAnalysis(ctx, targetData);
+      } else {
+        // staged or unstaged
+        analysis = await requestDiffAnalysis(ctx, targetData);
+      }
+
+      // Stage 3: Request script generation from agent via sampling
+      state.stage = "script";
+
+      const script = await requestScriptGeneration(
+        ctx,
+        analysis,
+        style,
+        targetType
+      );
+
+      // Return both analysis and script
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "success",
+              requestId: state.id,
+              analysis: analysis,
+              script: script,
+              metadata: {
+                targetType: targetType,
+                style: style,
+                filesAnalyzed: analysis.files.length,
+                estimatedDuration: script.estimatedDuration,
+                sections: script.sections.length,
+              },
+              note: "Analysis and script generated successfully. You can now review/edit the script, or use generate_video_from_script to create the video."
+            }, null, 2),
+          },
+        ],
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              requestId: state.id,
+              stage: state.stage,
+              error: error instanceof Error ? error.message : String(error),
+            }, null, 2),
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  /**
+   * STEP 1: Prepare analysis prompt for clients without sampling.
+   * Extracts git/code data and returns a formatted prompt for the user to run in their LLM.
+   */
+  private async prepareAnalysisPrompt(
+    repoPath: string,
+    target: TargetSpec
+  ) {
+    try {
+      // Extract target content
+      let targetData: any;
+      let prompt: string;
+
+      switch (target.type) {
+        case "commit":
+          if (!target.commitHash) {
+            throw new Error("commitHash is required for type 'commit'");
+          }
+          targetData = await extractCommitInfo(repoPath, target.commitHash);
+          prompt = generateCommitAnalysisPrompt(targetData);
+          break;
+
+        case "staged":
+          targetData = await extractStagedChanges(repoPath);
+          prompt = generateDiffAnalysisPrompt(targetData);
+          break;
+
+        case "unstaged":
+          targetData = await extractUnstagedChanges(repoPath);
+          prompt = generateDiffAnalysisPrompt(targetData);
+          break;
+
+        case "codebase":
+          targetData = await extractCodebaseInfo(repoPath);
+          prompt = generateCodebaseAnalysisPrompt(targetData);
+          break;
+
+        default:
+          throw new Error(`Unknown target type: ${target.type}`);
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "success",
+              step: 1,
+              instruction: "Copy the prompt below and paste it into your LLM (e.g., Claude). The LLM will return an analysis JSON that you'll use in step 2.",
+              prompt: prompt,
+              nextStep: "After getting the analysis JSON from your LLM, use the 'prepare_script_prompt' tool with that analysis to get the script generation prompt."
+            }, null, 2),
+          },
+        ],
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              step: 1,
+              error: error instanceof Error ? error.message : String(error),
+            }, null, 2),
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  /**
+   * STEP 2: Prepare script generation prompt for clients without sampling.
+   * Takes analysis JSON and returns a formatted prompt for generating the video script.
+   */
+  private async prepareScriptPrompt(
+    analysis: any,
+    style: PresentationStyle,
+    targetType: string
+  ) {
+    try {
+      const prompt = generateScriptPrompt(analysis, style, targetType);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "success",
+              step: 2,
+              instruction: "Copy the prompt below and paste it into your LLM. The LLM will return a script JSON.",
+              prompt: prompt,
+              nextStep: "After getting the script JSON from your LLM, use the 'generate_video_from_script' tool with both the analysis and script JSON to create the video."
+            }, null, 2),
+          },
+        ],
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              step: 2,
+              error: error instanceof Error ? error.message : String(error),
             }, null, 2),
           },
         ],

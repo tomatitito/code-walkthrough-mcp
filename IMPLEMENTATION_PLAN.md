@@ -1,73 +1,91 @@
-# Implementation Plan: Git Commit Video Walkthrough MCP Server
+# Implementation Plan: Git Commit Video Walkthrough CLI Application
 
 ## Executive Summary
 
-This document outlines the plan to rewrite the git-commit-video-mcp-server to conform to the specification in `spec.md`. The key architectural change is implementing an **inverted conversation flow** where the tool orchestrates the agent's work through MCP's sampling capability, rather than the agent orchestrating the tool.
+This document outlines the plan to build a **CLI application** that generates narrated video walkthroughs of git commits, changes, or entire codebases. The application will use LLM APIs (Anthropic Claude, Google Gemini, etc.) to analyze code and generate natural narration scripts, then compile these into professional video presentations.
 
 ## Current State Analysis
 
 ### Existing Implementation
-The current server (`src/index.ts`) implements a traditional MCP tool pattern:
-- **6 tools**: `analyze_commit`, `generate_video_script`, `create_video_frames`, `compile_video`, `generate_audio`, `generate_full_script`
-- **Agent-orchestrated flow**: Agent calls tools sequentially to build a video
-- **Self-contained logic**: Tools perform all analysis and content generation internally
-- **No sampling**: No use of MCP's sampling capability for agent collaboration
+The current codebase is an MCP server that has been partially implemented but should be converted to a standalone CLI application.
 
-### Gap from Specification
-The spec requires:
-- **Tool-orchestrated flow**: Tool prompts agent for analysis work
-- **Agent performs analysis**: Agent reads files, analyzes diffs, generates summaries
-- **Multi-turn interaction**: Tool and agent collaborate until video is complete
-- **Subagent delegation**: Agent should use subagents for complex analysis tasks
+### Target Architecture
+The application should be a **standalone CLI tool** that:
+- **Direct LLM integration**: Calls LLM APIs directly (Anthropic, Google AI, etc.)
+- **Self-contained**: No MCP protocol dependency
+- **Command-line interface**: Simple `git-commit-video` command
+- **Local execution**: Runs entirely on the user's machine
 
 ## Architecture Design
 
-### Core Pattern: Sampling-Based Inverted Flow
+### Core Pattern: Direct LLM API Integration
 
-The new architecture leverages **MCP Sampling** to enable the tool to request agent work:
+The CLI application directly calls LLM APIs to generate analysis and scripts:
 
 ```typescript
-// Tool prompts agent for analysis
-const analysisResult = await ctx.session.create_message({
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+// CLI calls LLM for analysis
+const analysisResult = await anthropic.messages.create({
+  model: 'claude-3-5-sonnet-20241022',
+  max_tokens: 3000,
   messages: [{
     role: "user",
     content: "Analyze commit abc123. Read diffs, explain changes..."
   }],
-  max_tokens: 3000
 });
 
-// Tool processes agent's response
+// Parse analysis response
 const analysis = JSON.parse(analysisResult.content[0].text);
 
-// Tool prompts agent for narration script
-const scriptResult = await ctx.session.create_message({
+// CLI calls LLM for narration script
+const scriptResult = await anthropic.messages.create({
+  model: 'claude-3-5-sonnet-20241022',
+  max_tokens: 2000,
   messages: [{
-    role: "user", 
+    role: "user",
     content: `Generate narration script based on: ${JSON.stringify(analysis)}`
   }],
-  max_tokens: 2000
 });
 
-// Tool generates video using agent's outputs
+// CLI generates video using LLM's outputs
 const video = generateVideo(analysis, scriptResult);
 ```
 
-### Tool Interface Design
+### CLI Interface Design
 
-**Single Primary Tool**: `generate_walkthrough`
+**Command-Line Interface**:
 
-**Input Parameters:**
-```typescript
-{
-  repoPath: string;           // Path to git repository
-  target: {                    // What to analyze
-    type: "commit" | "staged" | "unstaged" | "codebase";
-    commitHash?: string;       // For type: "commit"
-  };
-  style?: "beginner" | "technical" | "overview";  // Presentation style
-  outputPath?: string;        // Where to save video (default: ./walkthrough.mp4)
-  theme?: "dark" | "light" | "github";           // Visual theme
-}
+```bash
+git-commit-video <commit-hash> [options]
+git-commit-video --staged [options]
+git-commit-video --unstaged [options]
+git-commit-video --codebase [options]
+
+Options:
+  --repo <path>          Path to git repository (default: current directory)
+  --output <path>        Output video path (default: ./walkthrough.mp4)
+  --style <style>        Presentation style: beginner, technical, overview (default: technical)
+  --theme <theme>        Visual theme: dark, light, github (default: dark)
+  --llm <provider>       LLM provider: anthropic, google (default: anthropic)
+  --model <name>         Specific model to use (default: provider's latest)
+  --help, -h             Show help
+```
+
+**Examples:**
+```bash
+# Analyze a specific commit
+git-commit-video abc123
+
+# Analyze staged changes with technical style
+git-commit-video --staged --style technical
+
+# Analyze entire codebase with light theme
+git-commit-video --codebase --theme light --output ./codebase-overview.mp4
 ```
 
 **Processing Stages:**
@@ -77,21 +95,21 @@ const video = generateVideo(analysis, scriptResult);
    - Detect git repository
    - Determine what to analyze based on `target.type`
 
-2. **Agent Analysis Stage** (via sampling)
-   - **For commits**: Prompt agent to analyze commit diff
-   - **For staged/unstaged**: Prompt agent to analyze `git diff` output
-   - **For codebase**: Prompt agent to analyze entire project structure
-   - Agent returns structured analysis (JSON)
+2. **LLM Analysis Stage** (via API)
+   - **For commits**: Call LLM API to analyze commit diff
+   - **For staged/unstaged**: Call LLM API to analyze `git diff` output
+   - **For codebase**: Call LLM API to analyze entire project structure
+   - LLM returns structured analysis (JSON)
 
-3. **Narration Generation Stage** (via sampling)
-   - Prompt agent to generate natural narration script
+3. **Narration Generation Stage** (via API)
+   - Call LLM API to generate natural narration script
    - Include style guidance (beginner/technical/overview)
-   - Agent returns timed script with pauses
+   - LLM returns timed script with pauses
 
-4. **Video Generation Stage** (tool-native)
+4. **Video Generation Stage** (native)
    - Generate HTML frames with syntax-highlighted code
    - Convert HTML to PNG using Puppeteer
-   - Generate audio from script using Edge TTS
+   - Generate audio from script using TTS
    - Compile video using FFmpeg
 
 5. **Output**
@@ -100,9 +118,7 @@ const video = generateVideo(analysis, scriptResult);
 
 ### State Management
 
-**Problem**: MCP protocol doesn't specify session persistence. Multi-turn sampling requests need context continuity.
-
-**Solution**: Conversation context management
+**Solution**: Simple in-process state management
 
 ```typescript
 interface WalkthroughState {
@@ -111,31 +127,21 @@ interface WalkthroughState {
   target: TargetSpec;
   style: string;
   stage: "analysis" | "script" | "video" | "complete";
-  analysis?: AnalysisResult;     // From agent's first response
-  script?: ScriptResult;         // From agent's second response
+  analysis?: AnalysisResult;     // From LLM's first response
+  script?: ScriptResult;         // From LLM's second response
   frames?: string[];             // Generated frame paths
   audioPath?: string;            // Generated audio file
 }
-
-// Store state in memory during tool execution
-const stateMap = new Map<string, WalkthroughState>();
 ```
 
-Since MCP tool calls are atomic (start → finish), state lives only within a single tool execution. The multi-turn conversation happens via sequential sampling requests within that execution.
+State is maintained in the CLI process from start to finish. Each execution creates a new state object that progresses through the stages.
 
-### Subagent Integration
+### LLM Prompt Design
 
-**Specification Requirement**: "If the agent has the ability to use subagents, the tool instructs the agent to use a subagent for each analysis."
-
-**Implementation via Prompts**:
+**Implementation via Well-Structured Prompts**:
 
 ```typescript
 const analysisPrompt = `Analyze commit ${commitHash}.
-
-IMPORTANT: If you have access to subagents, delegate this analysis to a specialized subagent. Use the following delegation strategy:
-
-- Use a code analysis subagent for examining diffs and file changes
-- Use a documentation subagent for explaining intent and impact
 
 Your analysis should include:
 1. High-level summary (what was achieved, how)
@@ -155,7 +161,7 @@ Return JSON format:
 }`;
 ```
 
-The agent (e.g., Claude Code) will automatically use its Task tool to delegate to subagents when appropriate. The MCP server doesn't need to know about subagents - it just requests analysis and receives results.
+The LLM analyzes the code and returns structured JSON that the CLI parses and uses for video generation.
 
 ### Input Type Support
 
@@ -208,11 +214,11 @@ target: { type: "codebase" }
 - Test all three styles (beginner, technical, overview)
 - Test error handling (missing commits, invalid repos)
 
-**3. Sampling Mock Tests** (`tests/sampling/`)
-- Mock MCP sampling responses
-- Verify prompts sent to agent
+**3. LLM Mock Tests** (`tests/llm/`)
+- Mock LLM API responses
+- Verify prompts sent to LLM
 - Test conversation flow (analysis → script → video)
-- Validate JSON parsing of agent responses
+- Validate JSON parsing of LLM responses
 
 **4. Visual Regression Tests** (`tests/visual/`)
 - Capture sample frames for each theme
@@ -279,18 +285,19 @@ echo "✓ All integration tests passed"
 
 ## Implementation Phases
 
-### Phase 1: Core Sampling Architecture (Week 1)
-**Goal**: Implement inverted flow with sampling
+### Phase 1: Core CLI Architecture (Week 1)
+**Goal**: Implement CLI with LLM integration
 
 **Tasks**:
-- [ ] Update MCP server to declare `sampling` capability
-- [ ] Create `generate_walkthrough` tool with sampling integration
-- [ ] Implement commit analysis stage (prompt agent, parse response)
-- [ ] Implement script generation stage (prompt agent, parse response)
-- [ ] Add state management for multi-turn conversation
-- [ ] Write unit tests for sampling mock
+- [ ] Create CLI entry point (`src/cli.ts`)
+- [ ] Add command-line argument parsing
+- [ ] Integrate Anthropic SDK for LLM calls
+- [ ] Implement commit analysis stage (call LLM API, parse response)
+- [ ] Implement script generation stage (call LLM API, parse response)
+- [ ] Add state management for execution flow
+- [ ] Write unit tests for LLM API mocks
 
-**Deliverable**: Tool can request agent analysis and receive structured JSON response
+**Deliverable**: CLI can call LLM API for analysis and receive structured JSON response
 
 ### Phase 2: Input Type Support (Week 2)
 **Goal**: Support all target types (commit, staged, unstaged, codebase)
@@ -303,20 +310,20 @@ echo "✓ All integration tests passed"
 - [ ] Create target-specific prompts for each type
 - [ ] Write integration tests for each target type
 
-**Deliverable**: Tool works with commits, diffs, and whole codebases
+**Deliverable**: CLI works with commits, diffs, and whole codebases
 
 ### Phase 3: Video Generation (Week 3)
 **Goal**: Generate complete videos with frames and audio
 
 **Tasks**:
-- [ ] Refactor frame generation to use agent's analysis
+- [ ] Refactor frame generation to use LLM's analysis
 - [ ] Implement syntax highlighting for common languages
-- [ ] Integrate Edge TTS for audio narration
+- [ ] Integrate TTS for audio narration (say.js or edge-tts)
 - [ ] Implement FFmpeg video compilation
 - [ ] Add timing synchronization (match audio to frames)
 - [ ] Test all three themes (dark, light, github)
 
-**Deliverable**: Tool produces complete MP4 videos
+**Deliverable**: CLI produces complete MP4 videos
 
 ### Phase 4: Style & Polish (Week 4)
 **Goal**: Implement presentation styles and improve quality
@@ -330,7 +337,7 @@ echo "✓ All integration tests passed"
 - [ ] Add error handling and validation
 - [ ] Write comprehensive documentation
 
-**Deliverable**: Production-ready tool with excellent UX
+**Deliverable**: Production-ready CLI with excellent UX
 
 ### Phase 5: Testing & Documentation (Week 5)
 **Goal**: Complete test coverage and documentation
@@ -344,41 +351,28 @@ echo "✓ All integration tests passed"
 - [ ] Create example videos
 - [ ] Performance testing and optimization
 
-**Deliverable**: Well-tested, documented tool ready for release
+**Deliverable**: Well-tested, documented CLI ready for release
 
 ## Migration Strategy
 
-### Breaking Changes
-The new implementation has a fundamentally different API:
+### Architecture Change
+The application is being transformed from an MCP server to a standalone CLI application:
 
-**Old**: 6 separate tools that agent orchestrates
+**Old**: MCP server with multiple tools
 ```typescript
-// Agent calls each tool
-await analyzeCommit({repoPath, commitHash});
-await generateScript({commitInfo, style});
-await createFrames({commitInfo, outputDir});
-await generateAudio({text, outputFile});
-await compileVideo({framesDir, audioPath, outputPath});
+// MCP server approach
+const server = new GitCommitVideoServer();
+// Client calls MCP tools via protocol
 ```
 
-**New**: 1 tool that orchestrates agent
-```typescript
-// Agent calls once, tool does everything
-await generateWalkthrough({
-  repoPath,
-  target: {type: "commit", commitHash},
-  style: "technical"
-});
+**New**: Standalone CLI application
+```bash
+# Direct CLI usage
+git-commit-video abc123 --style technical
 ```
 
-### Deprecation Path
-1. Mark old tools as deprecated in `ListToolsRequestSchema`
-2. Add warning messages when old tools are called
-3. Provide migration guide in README
-4. Remove old tools after 2 release cycles
-
-### Backward Compatibility
-Not feasible due to fundamental architectural change. Old tools cannot be shimmed to new architecture since they don't use sampling.
+### No Backward Compatibility Needed
+Since this is a fundamental architectural change from MCP server to CLI application, no backward compatibility is required. This is a complete rewrite.
 
 **Recommendation**: Major version bump (v0.1.0 → v1.0.0)
 
@@ -386,26 +380,30 @@ Not feasible due to fundamental architectural change. Old tools cannot be shimme
 
 ```
 src/
-  index.ts                    # Main MCP server (rewritten)
-  tools/
-    generate-walkthrough.ts   # Primary tool implementation
+  cli.ts                     # Main CLI entry point
+  index.ts                   # Core application logic
   stages/
-    analysis.ts              # Agent analysis stage (sampling)
-    script.ts                # Script generation stage (sampling)
+    analysis.ts              # LLM analysis stage (API calls)
+    script.ts                # Script generation stage (API calls)
     video.ts                 # Video generation stage (native)
   generators/
     frames.ts                # HTML frame generation
-    audio.ts                 # Edge TTS integration
+    audio.ts                 # TTS integration
     compiler.ts              # FFmpeg video compilation
   extractors/
     commit.ts                # Extract commit diffs
     staged.ts                # Extract staged changes
     unstaged.ts              # Extract unstaged changes
     codebase.ts              # Enumerate codebase files
+  llm/
+    anthropic.ts             # Anthropic API integration
+    google.ts                # Google AI integration
+    types.ts                 # LLM provider interface
   utils/
     syntax-highlight.ts      # Syntax highlighting utilities
     timing.ts                # Audio/frame synchronization
-    prompts.ts               # Prompt templates for agent
+    prompts.ts               # Prompt templates for LLM
+    args.ts                  # CLI argument parsing
   types/
     state.ts                 # State management types
     analysis.ts              # Analysis result types
@@ -416,45 +414,55 @@ tests/
     extractors/              # Test git operations
   integration/
     walkthrough.test.ts      # End-to-end walkthrough tests
-  sampling/
-    mock-agent.ts            # Mock sampling responses
+  llm/
+    mock-api.ts              # Mock LLM API responses
   fixtures/
     sample-repo/             # Git repository for testing
   visual/
     snapshots/               # Visual regression snapshots
+bin/
+  git-commit-video           # Compiled binary (optional)
 ```
 
 ## Dependencies
 
 ### Keep (Already Used)
-- `@modelcontextprotocol/sdk`: MCP server framework
 - `simple-git`: Git operations
 - `puppeteer`: HTML to PNG conversion
 - `highlight.js`: Syntax highlighting
-- `axios`: HTTP requests (if needed)
 
-### Add
-- None required - all functionality can be achieved with existing deps
+### Add (New for CLI)
+- `@anthropic-ai/sdk`: Anthropic Claude API client
+- `@google/generative-ai`: Google Gemini API client (keep this one!)
+- `commander` or `yargs`: CLI argument parsing
+- `chalk`: Colored terminal output
+- `ora`: Spinner/progress indicators
 
-### Remove
-- `@google/generative-ai`: Not needed (using MCP sampling instead)
-- `say`: Replaced by Edge TTS (already integrated)
+### Remove (MCP-specific)
+- `@modelcontextprotocol/sdk`: No longer needed (removing MCP server)
+- `axios`: Not needed if using native SDK clients
+
+### Keep for TTS
+- `say`: Cross-platform TTS (or use `edge-tts` Python package)
 
 ### External Tools (Required)
 - **FFmpeg**: Video compilation (must be installed on system)
-- **Edge TTS** (`edge-tts` Python package): Audio generation (must be installed)
+- **Edge TTS** (`edge-tts` Python package): Optional for better TTS quality
 
 ## Risk Assessment
 
 ### High Risk
-1. **MCP Sampling Adoption**: Sampling requires client support and user approval
-   - **Mitigation**: Document client requirements, provide fallback error messages
+1. **API Key Management**: Users need to provide LLM API keys
+   - **Mitigation**: Support environment variables, config files, and command-line args. Provide clear setup documentation
 
-2. **Agent Response Parsing**: Agent might return malformed JSON
+2. **LLM Response Parsing**: LLM might return malformed JSON
    - **Mitigation**: Use strict JSON schema validation, retry with clarification prompt
 
-3. **External Dependencies**: FFmpeg and Edge TTS must be installed
+3. **External Dependencies**: FFmpeg and TTS must be installed
    - **Mitigation**: Check for dependencies on startup, provide helpful error messages
+
+4. **API Costs**: LLM API calls incur costs for users
+   - **Mitigation**: Show estimated cost before execution, add `--dry-run` flag to preview prompts
 
 ### Medium Risk
 1. **Long-running Execution**: Video generation can take minutes
@@ -471,11 +479,11 @@ tests/
 
 ### Functional Requirements ✓
 - [ ] Supports commit, staged, unstaged, and codebase analysis
-- [ ] Uses sampling to delegate analysis to agent
-- [ ] Instructs agent to use subagents when available
+- [ ] Uses LLM APIs (Anthropic, Google) for code analysis
 - [ ] Generates MP4 videos with audio narration
 - [ ] Implements three presentation styles
 - [ ] Provides syntax highlighting for 10+ languages
+- [ ] Works as standalone CLI (no external dependencies except FFmpeg/TTS)
 
 ### Quality Requirements ✓
 - [ ] 90%+ test coverage
@@ -497,8 +505,8 @@ tests/
 
 ## Conclusion
 
-This implementation plan transforms the git-commit-video-mcp-server from a traditional tool collection into an **agent-orchestrating MCP server** that leverages sampling to delegate code analysis work to intelligent agents. The new architecture aligns with the specification's vision of an inverted conversation flow while maintaining compatibility with the MCP protocol.
+This implementation plan transforms the project into a **standalone CLI application** that leverages LLM APIs to analyze code and generate professional video walkthroughs. By calling LLM APIs directly (Anthropic Claude, Google Gemini), the application remains simple, self-contained, and easy to use.
 
-The phased approach ensures incremental progress with testable milestones, reducing risk and enabling early feedback. By focusing on core sampling architecture first, then expanding to support multiple input types and presentation styles, we build a solid foundation before adding polish.
+The phased approach ensures incremental progress with testable milestones, reducing risk and enabling early feedback. By focusing on core CLI architecture and LLM integration first, then expanding to support multiple input types and presentation styles, we build a solid foundation before adding polish.
 
-The end result will be a powerful tool that transforms git commits, changes, and codebases into accessible, narrated video walkthroughs - making code review more engaging and understandable for developers of all skill levels.
+The end result will be a powerful CLI tool that transforms git commits, changes, and codebases into accessible, narrated video walkthroughs - making code review more engaging and understandable for developers of all skill levels.

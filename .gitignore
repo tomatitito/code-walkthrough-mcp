@@ -5,3 +5,11 @@ dist/
 video_output/
 test_output/
 bin/git-commit-video
+
+# Beads
+.beads/beads.db
+.beads/beads.db-*
+.beads/bd.sock
+.beads/bd.pipe
+.beads/.exclusive-lock
+.git/beads-worktrees/

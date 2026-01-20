@@ -1,15 +1,16 @@
 # Git Commit Video Walkthrough Generator
 
-An MCP (Model Context Protocol) server that generates narrated video walkthroughs of git commits, staged/unstaged changes, or entire codebases with AI-powered analysis and explanations.
+A command-line tool that generates narrated video walkthroughs of git commits, staged/unstaged changes, or entire codebases with AI-powered analysis and explanations.
 
 ## Features
 
 - 🎥 Automatic video generation from git commits, diffs, or codebases
-- 🤖 AI-powered code analysis and script generation
-- 🗣️ Natural text-to-speech narration using system TTS
+- 🤖 AI-powered code analysis using Claude (Anthropic) or Gemini (Google)
+- 🗣️ Natural text-to-speech narration
 - 🎨 Syntax-highlighted code visualization
 - 📊 Multiple presentation styles (beginner, technical, overview)
-- 🎯 Works with or without MCP sampling support
+- ⚡ Standalone CLI - no external services required
+- 🔑 Direct LLM API integration (Anthropic, Google AI)
 
 ## Installation
 
@@ -20,208 +21,199 @@ An MCP (Model Context Protocol) server that generates narrated video walkthrough
   - Linux: `apt install ffmpeg`
   - Windows: Download from [ffmpeg.org](https://ffmpeg.org/)
 
-- **Node.js/Bun**: For running the MCP server
+- **Node.js/Bun**: For running the CLI
   - Recommended: Bun 1.0+ (`curl -fsSL https://bun.sh/install | bash`)
   - Or Node.js 20+
 
-### Build from Source
+- **LLM API Key**: You need an API key from one of these providers:
+  - **Anthropic Claude**: Get from [console.anthropic.com](https://console.anthropic.com/)
+  - **Google AI**: Get from [ai.google.dev](https://ai.google.dev/)
+
+### Install from Source
 
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/code-walkthrough-cli.git
+cd code-walkthrough-cli
+
 # Install dependencies
 bun install
 
 # Build TypeScript
 bun run build
+
+# Optional: Create compiled binary
+bun run build:bin
+```
+
+### Setup API Keys
+
+Set your API key as an environment variable:
+
+```bash
+# For Anthropic Claude
+export ANTHROPIC_API_KEY="your-api-key-here"
+
+# Or for Google Gemini
+export GOOGLE_API_KEY="your-api-key-here"
+
+# Add to your shell profile (~/.zshrc, ~/.bashrc) to persist
+echo 'export ANTHROPIC_API_KEY="your-api-key-here"' >> ~/.zshrc
 ```
 
 ## Usage
 
-This tool can be used in two ways, depending on whether your MCP client supports sampling:
+### Basic Usage
 
-### Option 1: With MCP Sampling Support (Automatic)
+```bash
+# Analyze a specific commit
+git-commit-video abc123
 
-If your MCP client supports the sampling capability, use the `generate_walkthrough` tool:
+# Analyze staged changes
+git-commit-video --staged
 
-```json
-{
-  "tool": "generate_walkthrough",
-  "arguments": {
-    "repoPath": "/path/to/repository",
-    "target": {
-      "type": "codebase"
-    },
-    "style": "technical",
-    "theme": "dark",
-    "outputPath": "./walkthrough.mp4"
-  }
-}
+# Analyze unstaged changes
+git-commit-video --unstaged
+
+# Analyze entire codebase
+git-commit-video --codebase
 ```
 
-**Target types:**
-- `"codebase"` - Analyze entire codebase
-- `"commit"` - Analyze specific commit (requires `commitHash`)
-- `"staged"` - Analyze staged changes
-- `"unstaged"` - Analyze unstaged changes
+### Options
 
-### Option 2: Without MCP Sampling Support (Manual)
+```bash
+git-commit-video <commit-hash> [options]
 
-If your MCP client doesn't support sampling (like Claude Code), use the two-step approach:
-
-#### Step 1: Generate Analysis and Script
-
-Ask your LLM to analyze the code:
-
-```
-Please analyze this codebase and provide a JSON response with the following structure:
-
-{
-  "summary": {
-    "achievement": "What this codebase accomplishes",
-    "approach": "How it accomplishes it"
-  },
-  "files": [
-    {
-      "path": "path/to/file.ts",
-      "status": "added" | "modified" | "deleted",
-      "explanation": "What this file does",
-      "impact": "Why it's important"
-    }
-  ],
-  "totalStats": {
-    "additions": 0,
-    "deletions": 0,
-    "filesChanged": 5
-  }
-}
-
-Analyze the following project: [project name/path]
-Focus on: [specific files or areas to analyze]
+Options:
+  --repo <path>          Path to git repository (default: current directory)
+  --output <path>        Output video path (default: ./walkthrough.mp4)
+  --style <style>        Presentation style: beginner, technical, overview (default: technical)
+  --theme <theme>        Visual theme: dark, light, github (default: dark)
+  --llm <provider>       LLM provider: anthropic, google (default: anthropic)
+  --model <name>         Specific model to use (default: provider's latest)
+  --help, -h             Show help
 ```
 
-Then ask for a script:
+### Examples
 
-```
-Based on this analysis, create a video script with the following JSON structure:
+```bash
+# Generate video for commit with technical style
+git-commit-video abc123 --style technical
 
-{
-  "intro": "Introduction text for the video",
-  "sections": [
-    {
-      "title": "Section title",
-      "narration": "What to say in this section",
-      "codeSnippet": "optional code to display",
-      "duration": 5
-    }
-  ],
-  "conclusion": "Concluding remarks",
-  "estimatedDuration": 30
-}
+# Analyze staged changes with light theme
+git-commit-video --staged --theme light --output ./staged-changes.mp4
 
-Style: technical|beginner|overview
-Target audience: [describe your audience]
+# Analyze entire codebase using Google Gemini
+git-commit-video --codebase --llm google --style overview
 
-Analysis:
-[paste the analysis JSON you received from the previous step]
+# Use specific repository path
+git-commit-video abc123 --repo /path/to/repo --output ./my-video.mp4
 ```
 
-#### Step 2: Generate Video
+### Target Types
 
-Call the `generate_video_from_script` tool with both JSONs:
+- **Specific Commit**: `git-commit-video <commit-hash>`
+- **Staged Changes**: `git-commit-video --staged`
+- **Unstaged Changes**: `git-commit-video --unstaged`
+- **Entire Codebase**: `git-commit-video --codebase`
 
-```json
-{
-  "tool": "generate_video_from_script",
-  "arguments": {
-    "analysis": { /* paste analysis JSON */ },
-    "script": { /* paste script JSON */ },
-    "style": "technical",
-    "theme": "dark",
-    "outputPath": "./walkthrough.mp4"
-  }
-}
+### Presentation Styles
+
+- **beginner**: Detailed explanations, slower pace, educational tone
+- **technical**: Precise, focused on implementation details
+- **overview**: Quick, high-level summary of changes
+
+### Visual Themes
+
+- **dark**: Dark background (ideal for code)
+- **light**: Light background
+- **github**: GitHub-style syntax highlighting
+
+## How It Works
+
+The CLI follows a three-stage pipeline:
+
+1. **Extract Git Data**: Analyzes commits, diffs, or codebase structure
+2. **LLM Analysis**: Calls Claude/Gemini API to analyze code and generate narration script
+3. **Video Generation**: Creates frames, generates audio, compiles into MP4
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│  Git Data   │ --> │ LLM Analysis │ --> │ Video Gen   │
+│  Extraction │     │  (API Call)  │     │ (Frames+TTS)│
+└─────────────┘     └──────────────┘     └─────────────┘
 ```
 
-See [USAGE_WITHOUT_SAMPLING.md](./USAGE_WITHOUT_SAMPLING.md) for detailed examples.
+## Configuration
 
-## MCP Server Configuration
+### API Key Configuration
 
-Add to your MCP client configuration (e.g., Claude Desktop):
+You can provide your API key in multiple ways (in order of precedence):
 
-```json
-{
-  "mcpServers": {
-    "walkthrough": {
-      "command": "node",
-      "args": ["/path/to/code-walkthrough-mcp/dist/src/index.js"]
-    }
-  }
-}
-```
+1. **Environment Variable** (recommended):
+   ```bash
+   export ANTHROPIC_API_KEY="your-key"
+   # or
+   export GOOGLE_API_KEY="your-key"
+   ```
 
-Or with Bun:
+2. **Command-line Argument**:
+   ```bash
+   git-commit-video abc123 --api-key "your-key"
+   ```
 
-```json
-{
-  "mcpServers": {
-    "walkthrough": {
-      "command": "bun",
-      "args": ["run", "/path/to/code-walkthrough-mcp/dist/src/index.js"]
-    }
-  }
-}
-```
+3. **Config File** (`~/.git-commit-video/config.json`):
+   ```json
+   {
+     "anthropicApiKey": "your-key",
+     "googleApiKey": "your-key",
+     "defaultLlm": "anthropic",
+     "defaultStyle": "technical",
+     "defaultTheme": "dark"
+   }
+   ```
 
-## Available Tools
+### LLM Providers
 
-### `generate_walkthrough`
+**Anthropic Claude** (default):
+- Best for code analysis
+- Models: `claude-3-5-sonnet-20241022`, `claude-3-opus-20240229`
+- Get API key: [console.anthropic.com](https://console.anthropic.com/)
 
-**Requires:** MCP sampling support
-
-Fully automatic video generation from code analysis to final video.
-
-**Parameters:**
-- `repoPath` (required): Path to git repository
-- `target` (required): What to analyze
-  - `type`: "commit" | "staged" | "unstaged" | "codebase"
-  - `commitHash`: Required if type is "commit"
-- `style`: "beginner" | "technical" | "overview" (default: "technical")
-- `theme`: "dark" | "light" | "github" (default: "dark")
-- `outputPath`: Where to save video (default: "./walkthrough.mp4")
-
-### `generate_video_from_script`
-
-**Requires:** No special capabilities (works with any MCP client)
-
-Generate video from pre-provided analysis and script.
-
-**Parameters:**
-- `analysis` (required): Analysis JSON object
-- `script` (required): Script JSON object
-- `style`: "beginner" | "technical" | "overview" (default: "technical")
-- `theme`: "dark" | "light" | "github" (default: "dark")
-- `outputPath`: Where to save video (default: "./walkthrough.mp4")
+**Google Gemini**:
+- Fast and cost-effective
+- Models: `gemini-1.5-pro`, `gemini-1.5-flash`
+- Get API key: [ai.google.dev](https://ai.google.dev/)
 
 ## Project Structure
 
 ```
 .
 ├── src/
-│   ├── index.ts              # MCP server implementation
+│   ├── cli.ts                # CLI entry point
+│   ├── index.ts              # Core application logic
 │   ├── stages/
-│   │   ├── analysis.ts       # Code analysis via sampling
-│   │   ├── script.ts         # Script generation via sampling
+│   │   ├── analysis.ts       # LLM analysis via API
+│   │   ├── script.ts         # Script generation via API
 │   │   └── video.ts          # Video generation pipeline
 │   ├── extractors/
 │   │   ├── commit.ts         # Extract commit info
 │   │   ├── staged.ts         # Extract staged changes
 │   │   ├── unstaged.ts       # Extract unstaged changes
 │   │   └── codebase.ts       # Extract codebase info
+│   ├── llm/
+│   │   ├── anthropic.ts      # Anthropic API integration
+│   │   ├── google.ts         # Google AI integration
+│   │   └── types.ts          # LLM provider interface
 │   ├── types/
 │   │   ├── state.ts          # Type definitions
 │   │   └── analysis.ts       # Analysis types
 │   └── utils/
-│       └── prompts.ts        # LLM prompts for analysis
+│       ├── prompts.ts        # LLM prompts for analysis
+│       └── args.ts           # CLI argument parsing
 ├── dist/                     # Compiled JavaScript
+├── bin/
+│   └── git-commit-video      # Compiled binary (optional)
 └── video_output/             # Generated videos (default)
 ```
 
@@ -231,26 +223,32 @@ Generate video from pre-provided analysis and script.
 # Watch mode (auto-rebuild on changes)
 bun run watch
 
-# Run MCP server
+# Run CLI locally
 bun run dev
 
 # Build TypeScript
 bun run build
+
+# Build standalone binary
+bun run build:bin
+
+# Run tests
+bun test
 ```
 
 ## Architecture
 
-This MCP server implements an **inverted conversation flow** using MCP's sampling capability:
+This CLI application uses a straightforward pipeline:
 
-1. **Client** calls `generate_walkthrough` tool
-2. **Server** extracts code/commits from git
-3. **Server** calls back to **client** via sampling: "analyze this code"
-4. **Client** processes with LLM, returns analysis
-5. **Server** calls back again: "generate script from analysis"
-6. **Client** generates script, returns it
-7. **Server** creates video frames, audio, and compiles final video
+1. **User** runs CLI command with target (commit, staged, unstaged, codebase)
+2. **CLI** extracts code/commits from git repository
+3. **CLI** calls LLM API (Anthropic/Google) to analyze code
+4. **LLM** returns structured analysis (JSON)
+5. **CLI** calls LLM API again to generate narration script
+6. **LLM** returns timed script with narration
+7. **CLI** generates video frames, audio, and compiles final MP4
 
-For clients without sampling, the `generate_video_from_script` tool allows manual completion of steps 3-5.
+All processing happens locally - only the LLM analysis is done via API calls.
 
 ## Video Generation Pipeline
 
@@ -279,20 +277,41 @@ temp_audio.mp3           # Temporary audio (auto-deleted)
 
 ## Troubleshooting
 
-### "Method not found -32601" Error
+### "API Key Not Found" Error
 
-Your MCP client doesn't support sampling. Use the `generate_video_from_script` tool instead (see Option 2 above).
+Make sure you've set your API key:
+```bash
+export ANTHROPIC_API_KEY="your-key"
+# or
+export GOOGLE_API_KEY="your-key"
+```
 
-### FFmpeg Not Found
+Add it to your shell profile to persist across sessions.
+
+### "FFmpeg Not Found" Error
 
 Install FFmpeg:
 - macOS: `brew install ffmpeg`
 - Linux: `apt install ffmpeg`
 - Windows: Download from ffmpeg.org and add to PATH
 
+Verify installation: `ffmpeg -version`
+
+### "Invalid JSON Response" Error
+
+The LLM returned malformed JSON. This can happen with very large diffs. Try:
+- Analyzing a smaller commit
+- Using a different LLM provider (`--llm google`)
+- Using a more capable model (`--model claude-3-opus-20240229`)
+
 ### No Audio in Video
 
-The tool uses system text-to-speech. If TTS fails, video will be generated without audio (silent).
+The CLI uses system text-to-speech. If TTS fails, the video will be generated without audio (silent).
+
+To improve TTS quality, install edge-tts:
+```bash
+pip install edge-tts
+```
 
 ### Puppeteer Issues
 
@@ -302,6 +321,27 @@ Puppeteer downloads Chromium automatically. If it fails:
 rm -rf node_modules
 bun install
 ```
+
+### Rate Limiting
+
+If you hit API rate limits, the CLI will automatically retry with exponential backoff. For large codebases, consider:
+- Using `--style overview` for shorter analysis
+- Splitting analysis into multiple commits
+- Using a higher rate limit tier with your LLM provider
+
+## Cost Estimates
+
+Typical API costs (approximate):
+
+| Target Type | Tokens | Anthropic (Claude) | Google (Gemini) |
+|-------------|--------|-------------------|-----------------|
+| Small commit (~10 files) | ~3K | $0.01 | $0.00 |
+| Medium commit (~50 files) | ~15K | $0.05 | $0.01 |
+| Large commit (~200 files) | ~60K | $0.20 | $0.03 |
+| Entire codebase (small) | ~20K | $0.07 | $0.01 |
+| Entire codebase (large) | ~100K | $0.35 | $0.05 |
+
+Use `--dry-run` to see estimated costs before execution.
 
 ## License
 
@@ -313,3 +353,13 @@ Contributions welcome! Please ensure:
 - TypeScript code compiles without errors
 - Follow existing code style
 - Update documentation for new features
+- Add tests for new functionality
+
+## Roadmap
+
+- [ ] Support for more LLM providers (OpenAI, Cohere)
+- [ ] Custom TTS voices
+- [ ] Interactive mode with live preview
+- [ ] Video editing features (trim, merge sections)
+- [ ] Export to different formats (GIF, WebM)
+- [ ] GitHub Actions integration
